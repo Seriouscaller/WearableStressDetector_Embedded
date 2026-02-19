@@ -106,18 +106,25 @@ void app_main(void)
     i2c_master_dev_handle_t bmi_handle = add_bmi160_i2c(bus_handle);
     max30101_data_t ppg_data;
     bmi160_data_t imu_data;
-    /*
+    
     // SPI Sensor (GSR)
-    ESP_ERROR_CHECK(init_spi());
-    spi_device_handle_t gsr_handle = add_gsr_spi();*/
-
+    //ESP_ERROR_CHECK(init_spi());
+    //spi_device_handle_t gsr_handle = add_gsr_spi();
+    
     ESP_LOGI(TAG, "All sensors initialized.");
-
+    
     while(1) {
         //display_raw_ppg(max_handle, ppg_data);
         //display_temperature(tmp_handle);
         //display_raw_gsr(gsr_handle);
         display_raw_imu(bmi_handle, &imu_data);
-        vTaskDelay(200 / portTICK_PERIOD_MS); // Faster sampling (5Hz)
+        vTaskDelay(200 / portTICK_PERIOD_MS);
     }
 }
+
+/*
+I2C Devices:
+0x48 TMP117
+0x57 MAX30101
+0x69 BMI160
+*/

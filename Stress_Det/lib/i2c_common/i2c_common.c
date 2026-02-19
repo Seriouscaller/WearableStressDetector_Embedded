@@ -1,10 +1,14 @@
 #include "i2c_common.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/i2c.h" 
+
+static const char *TAG = "I2C";
 
 #define I2C_MASTER_SDA_IO 5     // Physical Pin D4 (S3) #define I2C_MASTER_SDA_IO 5
 #define I2C_MASTER_SCL_IO 6     // Physical Pin D5 (S3) #define I2C_MASTER_SCL_IO 6
-#define I2C_MASTER_FREQ_HZ 4000000
 
 void init_i2c(i2c_master_bus_handle_t* bus_handle){
     i2c_master_bus_config_t bus_config = {

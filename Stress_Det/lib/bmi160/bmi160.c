@@ -10,7 +10,7 @@ static const char *TAG = "BMI160";
 #define BMI160_CHIP_ID        0xD1
 #define BMI160_REG_CHIP_ID    0x00
 #define BMI160_REG_ERR        0x02
-#define BMI160_REG_DATA       0x04
+#define BMI160_REG_DATA       0x0C
 #define BMI160_REG_STATUS     0x1B
 #define BMI160_REG_ACC_CONF   0x40
 #define BMI160_REG_ACC_RANGE  0x41
@@ -33,7 +33,7 @@ esp_err_t bmi160_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = BMI160_ADDR,
-        .scl_speed_hz = I2C_BUS_SPEED,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
     };
 
     // Adding device to i2c-bus
