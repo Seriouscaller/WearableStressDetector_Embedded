@@ -22,11 +22,6 @@ static const char *TAG = "BMI160";
 #define BMI160_CMD_ACC_NORMAL 0x11
 #define BMI160_CMD_GYR_NORMAL 0x15
 
-static esp_err_t write_reg(i2c_master_dev_handle_t handle, uint8_t reg, uint8_t data) {
-    uint8_t buf[2] = {reg, data};
-    return i2c_master_transmit(handle, buf, sizeof(buf), -1);
-}
-
 esp_err_t bmi160_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t* dev_handle){
     
     // Add device with address 0x68

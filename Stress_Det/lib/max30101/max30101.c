@@ -1,4 +1,5 @@
 #include "max30101.h"
+#include "i2c_common.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -20,11 +21,6 @@ static const char *TAG = "MAX30101";
 #define MAX30101_REG_LED2_PA        0x0D // IR LED
 #define MAX30101_REG_LED3_PA        0x0E // Green LED
 #define MAX30101_REG_LED4_PA        0x0F // Green LED #2
-
-static esp_err_t write_reg(i2c_master_dev_handle_t handle, uint8_t reg, uint8_t data){
-    uint8_t buf[2] = {reg, data};
-    return i2c_master_transmit(handle, buf, sizeof(buf), -1);
-}
 
 esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t* max_handle){
 
@@ -69,9 +65,11 @@ esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handl
     write_reg(*max_handle, MAX30101_REG_LED3_PA, 0x7F);
     write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x00);
     
-    // FIFO & ADC Setup (100Hz, 18-bit)
+    // FIFO & ADC Setup
+    // Sampling rate: 50Hz
+    // ADC Resolution: 18-bit
     write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, 0x40); 
-    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x5F);
+    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x43);
 
     // Enable Multi-LED Mode (0x07)
     // Needed to enable green LED
@@ -83,14 +81,14 @@ esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handl
     /* TODO: Enums for hex-values! */
 }
 
-esp_err_t max30101_read_fifo(i2c_master_dev_handle_t dev_handle, max30101_data_t* max_data){
+esp_err_t max30101_read_fifo(i2c_master_dev_handle_t dev_handle, uint32_t* ppg_green){
     uint8_t buffer[3];
     uint8_t reg = MAX30101_REG_FIFO_DATA;
 
     esp_err_t ret = i2c_master_transmit_receive(dev_handle, &reg, 1, buffer, 3, -1);
 
     if(ret == ESP_OK){
-        max_data->green_raw = ((buffer[0] << 16) | (buffer[1] << 8) | buffer[2]) & 0x3FFFF;
+        *ppg_green = ((buffer[0] << 16) | (buffer[1] << 8) | buffer[2]) & 0x3FFFF;
     }
     return ret;
 }

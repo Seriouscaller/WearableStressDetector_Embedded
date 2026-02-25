@@ -12,11 +12,6 @@ static const char *TAG = "TMP117";
 #define TMP117_REG_CONFIG         0x01
 #define TMP117_RESOLUTION         0.0078125f
 
-static esp_err_t write_reg(i2c_master_dev_handle_t handle, uint8_t reg, uint8_t data){
-    uint8_t buf[2] = {reg, data};
-    return i2c_master_transmit(handle, buf, sizeof(buf), -1);
-}
-
 esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t* tmp_handle){
 
     // Add device with address 0x48

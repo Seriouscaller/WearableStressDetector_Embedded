@@ -22,3 +22,8 @@ void init_i2c(i2c_master_bus_handle_t* bus_handle){
 
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, bus_handle));
 };
+
+esp_err_t write_reg(i2c_master_dev_handle_t handle, uint8_t reg, uint8_t data){
+    uint8_t buf[2] = {reg, data};
+    return i2c_master_transmit(handle, buf, sizeof(buf), -1);
+}
