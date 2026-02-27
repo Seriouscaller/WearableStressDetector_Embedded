@@ -5,6 +5,13 @@
 #include "freertos/task.h"
 #include "driver/i2c.h" 
 
+/*
+I2C Devices:
+0x48 TMP117
+0x57 MAX30101
+0x69 BMI160
+*/
+
 static const char *TAG = "I2C";
 
 #define I2C_MASTER_SDA_IO 5     // Physical Pin D4 (S3) #define I2C_MASTER_SDA_IO 5

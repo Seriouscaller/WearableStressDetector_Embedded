@@ -7,6 +7,7 @@
 #include "tmp117.h"
 #include "gsr.h"
 #include "bmi160.h"
+#include "ble.h"
 #include "i2c_common.h"
 #include "spi_common.h"
 #include "driver/spi_master.h"
@@ -19,7 +20,7 @@ typedef struct {
 } sensor_data_t;
 
 static const char *TAG = "MAIN_APP";
-
+static uint8_t ble_addr_type;
 
 i2c_master_dev_handle_t add_tmp117_i2c(i2c_master_bus_handle_t bus_handle){
     i2c_master_dev_handle_t tmp_handle;
@@ -114,35 +115,42 @@ void app_main(void)
     ESP_ERROR_CHECK(init_spi());
     spi_device_handle_t gsr_handle = add_gsr_spi();
     
-    sensor_data_t sensor_data = {
-        .ppg_green = 0,
-        .temperature_c = 0.0f,
-        .imu.acc_x = 0,
-        .imu.acc_y = 0,
-        .imu.acc_z = 0,
-        .imu.gyr_x = 0,
-        .imu.gyr_y = 0,
-        .imu.gyr_z = 0,
-        .gsr_raw = 0,
-    };
+    sensor_data_t sensor_data = {0};
     
     ESP_LOGI(TAG, "All sensors initialized.");
     
+    // 1. Initialize NVS (Storage for BLE stack)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+
+    nimble_port_init();
+    ble_svc_gap_init();
+    ble_hs_cfg.sync_cb = ble_on_sync;
+    nimble_port_freertos_init(ble_host_task);
+    
     while(1) {
         display_raw_ppg(max_handle, &sensor_data.ppg_green);
-        //display_temperature(tmp_handle, &sensor_data.temperature_c);
-        //display_raw_imu(bmi_handle, &sensor_data.imu);
-        //display_raw_gsr(gsr_handle, &sensor_data.gsr_raw);
+        display_temperature(tmp_handle, &sensor_data.temperature_c);
+        display_raw_imu(bmi_handle, &sensor_data.imu);
+        display_raw_gsr(gsr_handle, &sensor_data.gsr_raw);
 
-        // 50 Hz Sampling
-        vTaskDelay(pdMS_TO_TICKS(20));
-        //vTaskDelay(200 / portTICK_PERIOD_MS);
+        ble_update_sensor_data(
+            sensor_data.gsr_raw,
+            sensor_data.temperature_c,
+            sensor_data.ppg_green,
+            sensor_data.imu.acc_x,
+            sensor_data.imu.acc_y,
+            sensor_data.imu.acc_z,
+            sensor_data.imu.gyr_x
+        );
+
+        ESP_LOGD(TAG, "Pushed new sensor data to BLE buffer");
+            
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
-/*
-I2C Devices:
-0x48 TMP117
-0x57 MAX30101
-0x69 BMI160
-*/
+
