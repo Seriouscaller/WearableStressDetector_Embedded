@@ -82,7 +82,7 @@ void display_raw_imu(i2c_master_dev_handle_t imu_handle, bmi160_data_t* data){
 void display_raw_gsr(spi_device_handle_t gsr_handle, uint16_t* raw_gsr){
 
     if (gsr_sensor_read_raw(gsr_handle, raw_gsr) == ESP_OK) {
-        float voltage = (*raw_gsr / 4095.0f) * GSR_V_REF;
+        //float voltage = (*raw_gsr / 4095.0f) * GSR_V_REF;
         printf(">Raw GSR:%u\n", *raw_gsr);
     } else {
         ESP_LOGW(TAG, "Failed to read GSR sensor.");
@@ -115,21 +115,10 @@ void app_main(void)
     ESP_ERROR_CHECK(init_spi());
     spi_device_handle_t gsr_handle = add_gsr_spi();
     
+    ESP_LOGI(TAG, "All sensors initialized.");
     sensor_data_t sensor_data = {0};
     
-    ESP_LOGI(TAG, "All sensors initialized.");
-    
-    // 1. Initialize NVS (Storage for BLE stack)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        nvs_flash_init();
-    }
-
-    nimble_port_init();
-    ble_svc_gap_init();
-    ble_hs_cfg.sync_cb = ble_on_sync;
-    nimble_port_freertos_init(ble_host_task);
+    init_ble();
     
     while(1) {
         display_raw_ppg(max_handle, &sensor_data.ppg_green);
