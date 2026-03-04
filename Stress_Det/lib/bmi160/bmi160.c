@@ -83,13 +83,13 @@ esp_err_t bmi160_read(i2c_master_dev_handle_t dev_handle, bmi160_data_t* data){
     if(ret == ESP_OK) {
         
         // Little endian storage
-        data->gyr_x = (int16_t)((buffer[1] << 8)  | buffer[0]);
-        data->gyr_y = (int16_t)((buffer[3] << 8)  | buffer[2]);
-        data->gyr_z = (int16_t)((buffer[5] << 8)  | buffer[4]);
+        data->gyro_x = (int16_t)((buffer[1] << 8)  | buffer[0]);
+        data->gyro_y = (int16_t)((buffer[3] << 8)  | buffer[2]);
+        data->gyro_z = (int16_t)((buffer[5] << 8)  | buffer[4]);
 
-        data->acc_x = (int16_t)((buffer[7] << 8)  | buffer[6]);
-        data->acc_y = (int16_t)((buffer[9] << 8)  | buffer[8]);
-        data->acc_z = (int16_t)((buffer[11] << 8) | buffer[10]);
+        data->accel_x = (int16_t)((buffer[7] << 8)  | buffer[6]);
+        data->accel_y = (int16_t)((buffer[9] << 8)  | buffer[8]);
+        data->accel_z = (int16_t)((buffer[11] << 8) | buffer[10]);
     }
     return ret;
 }

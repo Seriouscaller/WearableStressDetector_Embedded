@@ -7,20 +7,13 @@
 #include "tmp117.h"
 #include "gsr.h"
 #include "bmi160.h"
-#include "ble.h"
+#include "ble_conn.h"
 #include "i2c_common.h"
 #include "spi_common.h"
 #include "driver/spi_master.h"
-
-typedef struct {
-    uint32_t ppg_green;
-    float temperature_c;
-    bmi160_data_t imu;
-    uint16_t gsr_raw;
-} sensor_data_t;
+#include "types.h"
 
 static const char *TAG = "MAIN_APP";
-static uint8_t ble_addr_type;
 
 i2c_master_dev_handle_t add_tmp117_i2c(i2c_master_bus_handle_t bus_handle){
     i2c_master_dev_handle_t tmp_handle;
@@ -67,13 +60,13 @@ void display_raw_imu(i2c_master_dev_handle_t imu_handle, bmi160_data_t* data){
     
     esp_err_t ret = bmi160_read(imu_handle, data);
     if(ret == ESP_OK){
-        printf(">Acc x:%d\n", data->acc_x);
-        printf(">Acc y:%d\n", data->acc_y);
-        printf(">Acc z:%d\n", data->acc_z);
+        printf(">Acc x:%d\n", data->accel_x);
+        printf(">Acc y:%d\n", data->accel_y);
+        printf(">Acc z:%d\n", data->accel_z);
 
-        printf(">Gyr x:%d\n", data->gyr_x);
-        printf(">Gyr y:%d\n", data->gyr_y);
-        printf(">Gyr z:%d\n", data->gyr_z);
+        printf(">Gyr x:%d\n", data->gyro_x);
+        printf(">Gyr y:%d\n", data->gyro_y);
+        printf(">Gyr z:%d\n", data->gyro_z);
     } else {
         ESP_LOGW(TAG, "Failed to read BMI160 sensor.");
     }
@@ -87,23 +80,12 @@ void display_raw_gsr(spi_device_handle_t gsr_handle, uint16_t* raw_gsr){
     } else {
         ESP_LOGW(TAG, "Failed to read GSR sensor.");
     }
-
-    /*
-    if(voltage > 0.05){
-        float resistance = GSR_R_FIXED * ((GSR_V_REF / voltage) - 1.0f);
-        float conductance = (1.0f / resistance) * 1000000.0f;
-
-        printf(">Voltage:%.2f\n", voltage);
-        printf(">GSR_uS:%.2f\n", conductance);
-        printf(">Resistance:%.2f\n", resistance);
-
-    }*/
 }
 
 void app_main(void)
 {
-    vTaskDelay(pdMS_TO_TICKS(2000)); 
-    
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    /*
     // Initialize I2C-bus and I2C-sensors
     i2c_master_bus_handle_t bus_handle;
     init_i2c(&bus_handle);
@@ -115,29 +97,20 @@ void app_main(void)
     ESP_ERROR_CHECK(init_spi());
     spi_device_handle_t gsr_handle = add_gsr_spi();
     
-    ESP_LOGI(TAG, "All sensors initialized.");
-    sensor_data_t sensor_data = {0};
+    ESP_LOGI(TAG, "All sensors initialized.");*/
+    app_sensor_data_t sensor_data = {0};
     
-    init_ble();
+    init_ble_conn();
     
     while(1) {
-        display_raw_ppg(max_handle, &sensor_data.ppg_green);
-        display_temperature(tmp_handle, &sensor_data.temperature_c);
-        display_raw_imu(bmi_handle, &sensor_data.imu);
-        display_raw_gsr(gsr_handle, &sensor_data.gsr_raw);
+        //display_raw_ppg(max_handle, &sensor_data.ppg_green);
+        //display_temperature(tmp_handle, &sensor_data.temperature_c);
+        //display_raw_imu(bmi_handle, &sensor_data.imu);
+        //display_raw_gsr(gsr_handle, &sensor_data.gsr_raw);
+        sensor_data.gsr_raw = 99;
+        sensor_data.temperature_c = 24.5f;
 
-        ble_update_sensor_data(
-            sensor_data.gsr_raw,
-            sensor_data.temperature_c,
-            sensor_data.ppg_green,
-            sensor_data.imu.acc_x,
-            sensor_data.imu.acc_y,
-            sensor_data.imu.acc_z,
-            sensor_data.imu.gyr_x
-        );
-
-        ESP_LOGD(TAG, "Pushed new sensor data to BLE buffer");
-            
+        ble_conn_set_data(&sensor_data);
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }

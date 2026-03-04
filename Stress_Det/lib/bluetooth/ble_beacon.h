@@ -9,7 +9,7 @@
 #include "host/ble_hs.h"
 #include "services/gap/ble_svc_gap.h"
 
-void init_ble(void);
+void init_ble_beacon(void);
 void ble_update_sensor_data(uint16_t gsr, float temp, uint32_t ppg, 
                             int16_t acc_x, int16_t acc_y, int16_t acc_z, 
                             int16_t gyr_x);
