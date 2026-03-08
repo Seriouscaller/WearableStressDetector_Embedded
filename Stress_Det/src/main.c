@@ -90,11 +90,34 @@ void display_raw_gsr(spi_device_handle_t gsr_handle, uint16_t* raw_gsr){
     }
 }
 
-// Test-function used to create a scaffold for tasks used by freeRTOS.
-// Separates a task to run on a single core.
-// Sensor_task run by Core 1 (Producer)
-void sensor_task(void *pvParameters) {
+void imu_task(void *pvParameters){
+    i2c_master_dev_handle_t bmi_handle = (i2c_master_dev_handle_t)pvParameters;
+    bmi160_data_t imu_data = {0};
 
+    while (1) {
+        if(bmi160_read(bmi_handle, &imu_data) == ESP_OK){
+            
+            if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
+                ble_sensor_payload.acc_x = imu_data.acc_x;
+                ble_sensor_payload.acc_y = imu_data.acc_y;
+                ble_sensor_payload.acc_z = imu_data.acc_z;
+                ble_sensor_payload.gyr_x = imu_data.gyr_x;
+                ble_sensor_payload.gyr_y = imu_data.gyr_y;
+                ble_sensor_payload.gyr_z = imu_data.gyr_z;
+
+                xSemaphoreGive(sensor_data_mutex);
+                ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", 
+                    imu_data.acc_x, imu_data.acc_y, imu_data.acc_z,
+                    imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
+            }
+        }else {
+            ESP_LOGW(TAG, "Failed to read BMI160 sensor.");
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+void temp_task(void *pvParameters){
     i2c_master_dev_handle_t tmp_handle = (i2c_master_dev_handle_t)pvParameters;
     float current_temp = 0.0f;
 
@@ -107,16 +130,45 @@ void sensor_task(void *pvParameters) {
                 ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
             }
         }
-        
-        // Notify the phone if connected
-        // Then copy ble payload struct into ble message buffer for transmission,
-        // and let phone read the most current data.
-        if (conn_handle != BLE_HS_CONN_HANDLE_NONE) {
-            struct os_mbuf *om = ble_hs_mbuf_from_flat(&ble_sensor_payload, sizeof(ble_sensor_payload));
-            ble_gatts_notify_custom(conn_handle, sensor_chr_val_handle, om);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+void ppg_task(void *pvParameters){
+    i2c_master_dev_handle_t max_handle = (i2c_master_dev_handle_t)pvParameters;
+    uint32_t current_ppg = 0;
+
+    while (1) {
+        if(max30101_read_fifo(max_handle, &current_ppg) == ESP_OK){
+            
+            if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
+                ble_sensor_payload.ppg_green = current_ppg;
+                xSemaphoreGive(sensor_data_mutex);
+                ESP_LOGI(TAG, "Read PPG: %lu", current_ppg);
+            }
+
+        }else {
+            ESP_LOGW(TAG, "Failed to read MAX30101 sensor.");
         }
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(10));     // 1/50Hz = 0.020s
+    }
+}
+
+void ble_update_task(void *pvParameters){
+    while (1){
+        // Only send if a phone is connected
+        if (conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+
+            // Is ble_sensor_payload free from producers?
+            if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
+                struct os_mbuf *om = ble_hs_mbuf_from_flat(&ble_sensor_payload, sizeof(ble_sensor_payload));
+                if(om != NULL){
+                    ble_gatts_notify_custom(conn_handle, sensor_chr_val_handle, om);
+                }
+                xSemaphoreGive(sensor_data_mutex);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));  // 1/2Hz = 0.5s    // 1/0,5s = 2Hz
     }
 }
 
@@ -137,17 +189,13 @@ void app_main(void)
 
     init_ble_server();
 
-    xTaskCreatePinnedToCore(
-        sensor_task,            // Function to run (Writing to payload, (producer))
-        "sensor_task",          // Name of task
-        4096,                   // Stack size
-        (void *)tmp_handle,     // Parameter
-        5,                      // Priority (higher number = higher prio)
-        NULL,                   // Task handle
-        1                       // Run by which core
-    );
+    xTaskCreatePinnedToCore(imu_task, "imu_task", 4096, bmi_handle, 10, NULL, 1);        // High-speed IMU Task (100Hz)
+    xTaskCreatePinnedToCore(temp_task, "temp_task", 2048, tmp_handle, 2, NULL, 1);       // Slow Temperature Task (1Hz)
+    xTaskCreatePinnedToCore(ppg_task, "ppg_task", 4096, max_handle, 9, NULL, 1);         // Heart Rate Task (50Hz)
+    xTaskCreatePinnedToCore(ble_update_task, "ble_update_task", 4096, NULL, 4, NULL, 1); // Send struct via BLE (100 ms)
 
-    while(1) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    sensor_data_mutex = xSemaphoreCreateMutex();
+    
+    return;
 }
+
