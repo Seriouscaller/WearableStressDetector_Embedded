@@ -1,19 +1,30 @@
 #include <stdio.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "driver/i2c_master.h"
+#include <string.h>
 #include "esp_log.h"
+#include "nvs_flash.h"
+#include "esp_timer.h"
+#include "nimble/nimble_port.h"
+#include "nimble/nimble_port_freertos.h"
+#include "driver/i2c_master.h"
+#include "host/ble_hs.h"
+#include "services/gap/ble_svc_gap.h"
+#include "services/gatt/ble_svc_gatt.h"
+#include "ble_server.h"
+#include "types.h"
+#include "i2c_common.h"
+#include "spi_common.h"
 #include "max30101.h"
 #include "tmp117.h"
 #include "gsr.h"
 #include "bmi160.h"
-#include "ble_conn.h"
-#include "i2c_common.h"
-#include "spi_common.h"
-#include "driver/spi_master.h"
-#include "types.h"
 
-static const char *TAG = "MAIN_APP";
+static const char *TAG = "MAIN";
+
+uint16_t conn_handle;
+uint16_t sensor_chr_val_handle;
+SemaphoreHandle_t sensor_data_mutex;
+
+sensor_data_t ble_sensor_payload = { .company_id = 0x02E5 }; // Example ID
 
 i2c_master_dev_handle_t add_tmp117_i2c(i2c_master_bus_handle_t bus_handle){
     i2c_master_dev_handle_t tmp_handle;
@@ -60,13 +71,13 @@ void display_raw_imu(i2c_master_dev_handle_t imu_handle, bmi160_data_t* data){
     
     esp_err_t ret = bmi160_read(imu_handle, data);
     if(ret == ESP_OK){
-        printf(">Acc x:%d\n", data->accel_x);
-        printf(">Acc y:%d\n", data->accel_y);
-        printf(">Acc z:%d\n", data->accel_z);
+        printf(">Acc x:%d\n", data->acc_x);
+        printf(">Acc y:%d\n", data->acc_y);
+        printf(">Acc z:%d\n", data->acc_z);
 
-        printf(">Gyr x:%d\n", data->gyro_x);
-        printf(">Gyr y:%d\n", data->gyro_y);
-        printf(">Gyr z:%d\n", data->gyro_z);
+        printf(">Gyr x:%d\n", data->gyr_x);
+        printf(">Gyr y:%d\n", data->gyr_y);
+        printf(">Gyr z:%d\n", data->gyr_z);
     } else {
         ESP_LOGW(TAG, "Failed to read BMI160 sensor.");
     }
@@ -82,37 +93,84 @@ void display_raw_gsr(spi_device_handle_t gsr_handle, uint16_t* raw_gsr){
     }
 }
 
+// Run by Core 1 (Producer)
+void sensor_task(void *pvParameters) {
+
+    i2c_master_dev_handle_t tmp_handle = (i2c_master_dev_handle_t)pvParameters;
+    float current_temp = 0.0f;
+
+    while (1) {
+        if(tmp117_read_temp(tmp_handle, &current_temp) == ESP_OK){
+            
+            if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
+                ble_sensor_payload.temp_raw = (uint16_t)(current_temp * 100);
+                xSemaphoreGive(sensor_data_mutex);
+                ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
+            }
+            
+        }
+        
+        /*// Mocking sensor updates
+        ble_sensor_payload.uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        ble_sensor_payload.gsr += 1;
+        ble_sensor_payload.ppg_green += 3;
+        ble_sensor_payload.temp_raw += 2;
+        ble_sensor_payload.acc_x += 1;
+        ble_sensor_payload.acc_y += 1;
+        ble_sensor_payload.acc_z += 1;*/
+        
+        // Notify the phone if connected
+        if (conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+            struct os_mbuf *om = ble_hs_mbuf_from_flat(&ble_sensor_payload, sizeof(ble_sensor_payload));
+            ble_gatts_notify_custom(conn_handle, sensor_chr_val_handle, om);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(100)); // 10Hz sampling rate
+    }
+}
+
 void app_main(void)
 {
     vTaskDelay(pdMS_TO_TICKS(2000));
-    /*
+    
     // Initialize I2C-bus and I2C-sensors
     i2c_master_bus_handle_t bus_handle;
     init_i2c(&bus_handle);
-    i2c_master_dev_handle_t max_handle = add_max30101_i2c(bus_handle);
+    //i2c_master_dev_handle_t max_handle = add_max30101_i2c(bus_handle);
     i2c_master_dev_handle_t tmp_handle = add_tmp117_i2c(bus_handle);
-    i2c_master_dev_handle_t bmi_handle = add_bmi160_i2c(bus_handle);
-    
+    //i2c_master_dev_handle_t bmi_handle = add_bmi160_i2c(bus_handle);
+    /*
     // Initialize SPI-bus and SPI-sensor
     ESP_ERROR_CHECK(init_spi());
-    spi_device_handle_t gsr_handle = add_gsr_spi();
+    spi_device_handle_t gsr_handle = add_gsr_spi();*/
     
-    ESP_LOGI(TAG, "All sensors initialized.");*/
-    app_sensor_data_t sensor_data = {0};
+    ESP_LOGI(TAG, "All sensors initialized.");
+    //sensor_data_t sensor_data = {0};
     
-    init_ble_conn();
+    init_ble_server();
+    xTaskCreatePinnedToCore(
+        sensor_task,            // Function to run (Writing to payload, (producer))
+        "sensor_task",          // Name of task
+        4096,                   // Stack size
+        (void *)tmp_handle,     // Parameter
+        5,                      // Priority (lower number = higher prio)
+        NULL,                   // Task handle
+        1                       // Run by which core
+    );
+
+    sensor_data_mutex = xSemaphoreCreateMutex();
+
+    //xTaskCreate(sensor_task, "sensor_task", 4096, (void *)tmp_handle, 5, NULL);
     
     while(1) {
         //display_raw_ppg(max_handle, &sensor_data.ppg_green);
         //display_temperature(tmp_handle, &sensor_data.temperature_c);
         //display_raw_imu(bmi_handle, &sensor_data.imu);
         //display_raw_gsr(gsr_handle, &sensor_data.gsr_raw);
-        sensor_data.gsr_raw = 99;
-        sensor_data.temperature_c = 24.5f;
+        //sensor_data.gsr_raw = 99;
+        //sensor_data.temperature_c = 24.5f;
 
-        ble_conn_set_data(&sensor_data);
-        vTaskDelay(pdMS_TO_TICKS(50));
+        //ble_conn_set_data(&sensor_data);
+        //vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
-
-

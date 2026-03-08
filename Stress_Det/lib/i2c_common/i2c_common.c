@@ -12,10 +12,10 @@ I2C Devices:
 0x69 BMI160
 */
 
-static const char *TAG = "I2C";
+#define I2C_MASTER_SDA_IO 5      // Physical Pin D4 (S3) #define I2C_MASTER_SDA_IO 5
+#define I2C_MASTER_SCL_IO 6      // Physical Pin D5 (S3) #define I2C_MASTER_SCL_IO 6
 
-#define I2C_MASTER_SDA_IO 5     // Physical Pin D4 (S3) #define I2C_MASTER_SDA_IO 5
-#define I2C_MASTER_SCL_IO 6     // Physical Pin D5 (S3) #define I2C_MASTER_SCL_IO 6
+static const char *TAG = "I2C";
 
 void init_i2c(i2c_master_bus_handle_t* bus_handle){
     i2c_master_bus_config_t bus_config = {

@@ -12,11 +12,16 @@
 static const char *TAG = "BLE";
 static uint8_t ble_addr_type;
 extern uint16_t conn_handle;
+extern sensor_data_t ble_sensor_payload;
+extern SemaphoreHandle_t sensor_data_mutex;
+
 
 // Callback when phone reads the characteristic
 int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    ble_sensor_payload.uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
-    os_mbuf_append(ctxt->om, &ble_sensor_payload, sizeof(ble_sensor_payload));
+    if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
+        ble_sensor_payload.uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        os_mbuf_append(ctxt->om, &ble_sensor_payload, sizeof(ble_sensor_payload));
+    }
     return 0;
 }
 
@@ -81,5 +86,15 @@ void init_ble_server(void){
     ble_gatts_add_svcs(gatt_svcs);
 
     ble_hs_cfg.sync_cb = ble_on_sync;
-    nimble_port_freertos_init(ble_host_task);
+    //nimble_port_freertos_init(ble_host_task);
+    // Starting and running BLE on core 0
+    xTaskCreatePinnedToCore(
+        ble_host_task,
+        "ble_host_task",
+        4096,
+        NULL,
+        5,
+        NULL,
+        0
+    );
 }

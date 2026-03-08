@@ -5,9 +5,11 @@
 #include "freertos/task.h"
 #include "driver/spi_master.h"
 
-static const char *TAG = "GSR";
-
+#define GSR_R_FIXED 100000.0f;
+#define GSR_V_REF   3.3f;
 #define SPI_NUM_CS    2
+
+static const char *TAG = "GSR";
 
 esp_err_t gsr_sensor_init(spi_device_handle_t *gsr_handle) {
     spi_device_interface_config_t devcfg = {

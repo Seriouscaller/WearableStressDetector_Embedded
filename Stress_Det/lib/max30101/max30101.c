@@ -6,7 +6,7 @@
 
 static const char *TAG = "MAX30101";
 
-// --- MAX30102 Definitions ---
+// --- MAX30101 Definitions ---
 #define MAX30101_ADDR               0x57
 #define MAX30101_REG_INT_ENABLE_1   0x02
 #define MAX30101_REG_FIFO_WR_PTR    0x04
@@ -72,7 +72,7 @@ esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handl
     write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x43);
 
     // Enable Multi-LED Mode (0x07)
-    // Needed to enable green LED
+    // Is needed to enable green LED
     write_reg(*max_handle, MAX30101_REG_MODE_CFG, 0x07);
     
     ESP_LOGI(TAG, "Initialized successfully");
