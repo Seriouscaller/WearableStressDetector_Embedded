@@ -32,7 +32,7 @@ esp_err_t gsr_sensor_read_raw(spi_device_handle_t handle, uint16_t* raw){
         .rx_buffer = rx_data,
     };
 
-    esp_err_t ret = spi_device_transmit(handle, &t) != ESP_OK;
+    esp_err_t ret = spi_device_transmit(handle, &t);
 
     if(ret == ESP_OK){
         *raw = ((rx_data[0] & 0x1F) << 7 | (rx_data[1] >> 1));

@@ -147,6 +147,8 @@ void app_main(void)
     ESP_LOGI(TAG, "All sensors initialized.");
     //sensor_data_t sensor_data = {0};
     
+    sensor_data_mutex = xSemaphoreCreateMutex();
+
     init_ble_server();
     xTaskCreatePinnedToCore(
         sensor_task,            // Function to run (Writing to payload, (producer))
@@ -157,8 +159,6 @@ void app_main(void)
         NULL,                   // Task handle
         1                       // Run by which core
     );
-
-    sensor_data_mutex = xSemaphoreCreateMutex();
 
     //xTaskCreate(sensor_task, "sensor_task", 4096, (void *)tmp_handle, 5, NULL);
     

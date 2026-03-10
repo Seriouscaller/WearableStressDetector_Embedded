@@ -15,12 +15,14 @@ extern uint16_t conn_handle;
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
 
+void ble_app_advertise(void);
 
 // Callback when phone reads the characteristic
 int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
         ble_sensor_payload.uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
         os_mbuf_append(ctxt->om, &ble_sensor_payload, sizeof(ble_sensor_payload));
+        xSemaphoreGive(sensor_data_mutex);
     }
     return 0;
 }
@@ -34,7 +36,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg) {
             break;
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(TAG, "Disconnected. Restarting Advertising...");
-            void ble_app_advertise(void); 
+            conn_handle = BLE_HS_CONN_HANDLE_NONE;
             ble_app_advertise();
             break;
         case BLE_GAP_EVENT_MTU:
