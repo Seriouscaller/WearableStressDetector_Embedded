@@ -4,26 +4,20 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2c.h" 
-
-/*
-I2C Devices:
-0x48 TMP117
-0x57 MAX30101
-0x69 BMI160
-*/
+#include "board_config.h"
 
 static const char *TAG = "I2C";
 
-#define I2C_MASTER_SDA_IO 5     // Physical Pin D4 (S3) #define I2C_MASTER_SDA_IO 5
-#define I2C_MASTER_SCL_IO 6     // Physical Pin D5 (S3) #define I2C_MASTER_SCL_IO 6
+#define I2C_MASTER_GLITCH_FILTER_LEN 7
 
+// Sets up master i2c-bus. Assigns pins.
 void init_i2c(i2c_master_bus_handle_t* bus_handle){
     i2c_master_bus_config_t bus_config = {
         .i2c_port = I2C_NUM_0,
         .sda_io_num = I2C_MASTER_SDA_IO,
         .scl_io_num = I2C_MASTER_SCL_IO,
         .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
+        .glitch_ignore_cnt = I2C_MASTER_GLITCH_FILTER_LEN,
         .flags.enable_internal_pullup = true,
     };
 

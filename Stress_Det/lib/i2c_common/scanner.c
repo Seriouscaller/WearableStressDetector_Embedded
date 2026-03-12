@@ -1,13 +1,12 @@
+// General purpose I2C scanner for Esp32-S3. 
+// Detects devices on bus and prints addresses.
+
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2c.h" 
 #include "esp_log.h"
-
-#define I2C_MASTER_SDA_IO 5     // Physical Pin D4 (S3) #define I2C_MASTER_SDA_IO 5
-#define I2C_MASTER_SCL_IO 6     // Physical Pin D5 (S3) #define I2C_MASTER_SCL_IO 6
-#define I2C_MASTER_FREQ_HZ 100000
-#define I2C_MASTER_NUM I2C_NUM_0
+#include "board_config.h"
 
 static const char *TAG = "I2C_SCAN";
 
@@ -22,7 +21,7 @@ void app_main(void)
         .mode = I2C_MODE_MASTER,
         .sda_io_num = I2C_MASTER_SDA_IO,
         .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE, // Try internal pullups first
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
         .master.clk_speed = I2C_MASTER_FREQ_HZ,
         .clk_flags = 0, 
