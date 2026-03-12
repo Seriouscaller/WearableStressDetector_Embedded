@@ -2,14 +2,10 @@
 #include "esp_log.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "board_config.h"
 
-// Pin definitions
-#define SPI_NUM_MISO  8     // XIAO D9
-#define SPI_NUM_CLK   7     // XIAO D8
-#define SPI_NUM_MOSI -1
-
+// Sets up master SPI-bus. Assigns pins.
 esp_err_t init_spi(void){
-    // Init SPI-bus
     spi_bus_config_t buscfg = {
         .miso_io_num = SPI_NUM_MISO,
         .mosi_io_num = SPI_NUM_MOSI,

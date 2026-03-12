@@ -18,12 +18,10 @@
 #include "gsr.h"
 #include "bmi160.h"
 
-static const char *TAG = "MAIN";
-
 uint16_t conn_handle;
 uint16_t sensor_chr_val_handle;
 SemaphoreHandle_t sensor_data_mutex;
-
+static const char *TAG = "MAIN";
 sensor_data_t ble_sensor_payload = { .company_id = 0x02E5 }; // Example ID
 
 i2c_master_dev_handle_t add_tmp117_i2c(i2c_master_bus_handle_t bus_handle){
@@ -86,14 +84,15 @@ void display_raw_imu(i2c_master_dev_handle_t imu_handle, bmi160_data_t* data){
 void display_raw_gsr(spi_device_handle_t gsr_handle, uint16_t* raw_gsr){
 
     if (gsr_sensor_read_raw(gsr_handle, raw_gsr) == ESP_OK) {
-        //float voltage = (*raw_gsr / 4095.0f) * GSR_V_REF;
         printf(">Raw GSR:%u\n", *raw_gsr);
     } else {
         ESP_LOGW(TAG, "Failed to read GSR sensor.");
     }
 }
 
-// Run by Core 1 (Producer)
+// Test-function used to create a scaffold for tasks used by freeRTOS.
+// Separates a task to run on a single core.
+// Sensor_task run by Core 1 (Producer)
 void sensor_task(void *pvParameters) {
 
     i2c_master_dev_handle_t tmp_handle = (i2c_master_dev_handle_t)pvParameters;
@@ -107,25 +106,17 @@ void sensor_task(void *pvParameters) {
                 xSemaphoreGive(sensor_data_mutex);
                 ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
             }
-            
         }
         
-        /*// Mocking sensor updates
-        ble_sensor_payload.uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
-        ble_sensor_payload.gsr += 1;
-        ble_sensor_payload.ppg_green += 3;
-        ble_sensor_payload.temp_raw += 2;
-        ble_sensor_payload.acc_x += 1;
-        ble_sensor_payload.acc_y += 1;
-        ble_sensor_payload.acc_z += 1;*/
-        
         // Notify the phone if connected
+        // Then copy ble payload struct into ble message buffer for transmission,
+        // and let phone read the most current data.
         if (conn_handle != BLE_HS_CONN_HANDLE_NONE) {
             struct os_mbuf *om = ble_hs_mbuf_from_flat(&ble_sensor_payload, sizeof(ble_sensor_payload));
             ble_gatts_notify_custom(conn_handle, sensor_chr_val_handle, om);
         }
         
-        vTaskDelay(pdMS_TO_TICKS(100)); // 10Hz sampling rate
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -136,41 +127,27 @@ void app_main(void)
     // Initialize I2C-bus and I2C-sensors
     i2c_master_bus_handle_t bus_handle;
     init_i2c(&bus_handle);
-    //i2c_master_dev_handle_t max_handle = add_max30101_i2c(bus_handle);
     i2c_master_dev_handle_t tmp_handle = add_tmp117_i2c(bus_handle);
-    //i2c_master_dev_handle_t bmi_handle = add_bmi160_i2c(bus_handle);
-    /*
-    // Initialize SPI-bus and SPI-sensor
-    ESP_ERROR_CHECK(init_spi());
-    spi_device_handle_t gsr_handle = add_gsr_spi();*/
     
     ESP_LOGI(TAG, "All sensors initialized.");
-    //sensor_data_t sensor_data = {0};
     
+    // Semaphore's job is to prevent multiple processes to read/write to ble_payload struct
+    // at the same time.
     sensor_data_mutex = xSemaphoreCreateMutex();
 
     init_ble_server();
+
     xTaskCreatePinnedToCore(
         sensor_task,            // Function to run (Writing to payload, (producer))
         "sensor_task",          // Name of task
         4096,                   // Stack size
         (void *)tmp_handle,     // Parameter
-        5,                      // Priority (lower number = higher prio)
+        5,                      // Priority (higher number = higher prio)
         NULL,                   // Task handle
         1                       // Run by which core
     );
 
-    //xTaskCreate(sensor_task, "sensor_task", 4096, (void *)tmp_handle, 5, NULL);
-    
     while(1) {
-        //display_raw_ppg(max_handle, &sensor_data.ppg_green);
-        //display_temperature(tmp_handle, &sensor_data.temperature_c);
-        //display_raw_imu(bmi_handle, &sensor_data.imu);
-        //display_raw_gsr(gsr_handle, &sensor_data.gsr_raw);
-        //sensor_data.gsr_raw = 99;
-        //sensor_data.temperature_c = 24.5f;
-
-        //ble_conn_set_data(&sensor_data);
-        //vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
