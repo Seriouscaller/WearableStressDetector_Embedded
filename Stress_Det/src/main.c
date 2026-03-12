@@ -194,8 +194,6 @@ void app_main(void)
     xTaskCreatePinnedToCore(ppg_task, "ppg_task", 4096, max_handle, 9, NULL, 1);         // Heart Rate Task (50Hz)
     xTaskCreatePinnedToCore(ble_update_task, "ble_update_task", 4096, NULL, 4, NULL, 1); // Send struct via BLE (100 ms)
 
-    sensor_data_mutex = xSemaphoreCreateMutex();
-    
     return;
 }
 
