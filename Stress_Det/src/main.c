@@ -18,6 +18,13 @@
 #include "gsr.h"
 #include "bmi160.h"
 
+#define ONE_HZ_IN_MS 1000
+#define TWO_HZ_IN_MS 500
+#define TEN_HZ_IN_MS 100
+#define FIFTY_HZ_IN_MS 20
+#define ONEHUNDRED_HZ_IN_MS 10
+#define BLE_NOTIFY_INTERVAL_MS 500
+
 uint16_t conn_handle;
 uint16_t sensor_chr_val_handle;
 SemaphoreHandle_t sensor_data_mutex;
@@ -48,55 +55,16 @@ spi_device_handle_t add_gsr_spi() {
     return gsr_handle;
 }
 
-void display_raw_ppg(i2c_master_dev_handle_t max_handle, uint32_t* ppg_green){
-    if (max30101_read_fifo(max_handle, ppg_green) == ESP_OK) {
-        printf(">PPG_Green_Raw:%lu\n", *ppg_green);
-    } else {
-        ESP_LOGW(TAG, "Failed to read MAX30101 sensor.");
-    }
-}
-
-void display_temperature(i2c_master_dev_handle_t tmp_handle, float* temperature){
-    esp_err_t ret = tmp117_read_temp(tmp_handle, temperature);
-    if(ret == ESP_OK){
-        printf(">Temperature:%.2f\n", *temperature);
-    } else {
-        ESP_LOGW(TAG, "Failed to read TMP117 sensor.");
-    }
-}
-
-void display_raw_imu(i2c_master_dev_handle_t imu_handle, bmi160_data_t* data){
-    
-    esp_err_t ret = bmi160_read(imu_handle, data);
-    if(ret == ESP_OK){
-        printf(">Acc x:%d\n", data->acc_x);
-        printf(">Acc y:%d\n", data->acc_y);
-        printf(">Acc z:%d\n", data->acc_z);
-
-        printf(">Gyr x:%d\n", data->gyr_x);
-        printf(">Gyr y:%d\n", data->gyr_y);
-        printf(">Gyr z:%d\n", data->gyr_z);
-    } else {
-        ESP_LOGW(TAG, "Failed to read BMI160 sensor.");
-    }
-}
-
-void display_raw_gsr(spi_device_handle_t gsr_handle, uint16_t* raw_gsr){
-
-    if (gsr_sensor_read_raw(gsr_handle, raw_gsr) == ESP_OK) {
-        printf(">Raw GSR:%u\n", *raw_gsr);
-    } else {
-        ESP_LOGW(TAG, "Failed to read GSR sensor.");
-    }
-}
-
+// Sampling of IMU sensor every 10 ms (100 Hz).
+// Adds read data to shared ble_sensor_payload stuct
 void imu_task(void *pvParameters){
     i2c_master_dev_handle_t bmi_handle = (i2c_master_dev_handle_t)pvParameters;
     bmi160_data_t imu_data = {0};
 
     while (1) {
         if(bmi160_read(bmi_handle, &imu_data) == ESP_OK){
-            
+            // Update shared ble_sensor_payload with new IMU data. Mutex ensures that 
+            // only one task can access ble_sensor_payload at a time, preventing data corruption.
             if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
                 ble_sensor_payload.acc_x = imu_data.acc_x;
                 ble_sensor_payload.acc_y = imu_data.acc_y;
@@ -113,10 +81,12 @@ void imu_task(void *pvParameters){
         }else {
             ESP_LOGW(TAG, "Failed to read BMI160 sensor.");
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(ONEHUNDRED_HZ_IN_MS));
     }
 }
 
+// Sampling of temperature sensor every 1000 ms (1 Hz).
+// Adds read data to shared ble_sensor_payload stuct
 void temp_task(void *pvParameters){
     i2c_master_dev_handle_t tmp_handle = (i2c_master_dev_handle_t)pvParameters;
     float current_temp = 0.0f;
@@ -130,10 +100,12 @@ void temp_task(void *pvParameters){
                 ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(ONE_HZ_IN_MS));
     }
 }
 
+// Sampling of PPG (blood) sensor every 20 ms (50 Hz).
+// Adds read data to shared ble_sensor_payload stuct
 void ppg_task(void *pvParameters){
     i2c_master_dev_handle_t max_handle = (i2c_master_dev_handle_t)pvParameters;
     uint32_t current_ppg = 0;
@@ -150,10 +122,33 @@ void ppg_task(void *pvParameters){
         }else {
             ESP_LOGW(TAG, "Failed to read MAX30101 sensor.");
         }
-    vTaskDelay(pdMS_TO_TICKS(10));     // 1/50Hz = 0.020s
+    vTaskDelay(pdMS_TO_TICKS(FIFTY_HZ_IN_MS));
     }
 }
 
+// Sampling of GSR (sweat) sensor every 100 ms (10 Hz).
+// Adds read data to shared ble_sensor_payload stuct
+void gsr_task(void *pvParameters){
+    spi_device_handle_t gsr_handle = (spi_device_handle_t)pvParameters;
+    uint16_t current_gsr = 0;
+
+    while (1) {
+        if(gsr_sensor_read_raw(gsr_handle, &current_gsr) == ESP_OK){
+            
+            if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
+                ble_sensor_payload.gsr = current_gsr;
+                xSemaphoreGive(sensor_data_mutex);
+                ESP_LOGI(TAG, "Read GSR: %u", current_gsr);
+            }
+
+        }else {
+            ESP_LOGW(TAG, "Failed to read GSR sensor.");
+        }
+    vTaskDelay(pdMS_TO_TICKS(TEN_HZ_IN_MS));
+    }
+}
+
+// Update BLE message buffer every 500 ms, and notify connected phone.
 void ble_update_task(void *pvParameters){
     while (1){
         // Only send if a phone is connected
@@ -162,24 +157,33 @@ void ble_update_task(void *pvParameters){
             // Is ble_sensor_payload free from producers?
             if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
                 struct os_mbuf *om = ble_hs_mbuf_from_flat(&ble_sensor_payload, sizeof(ble_sensor_payload));
+                
+                // Notify connected phone with new sensor data. If om is NULL, it means 
+                // there was an error creating the mbuf.
                 if(om != NULL){
                     ble_gatts_notify_custom(conn_handle, sensor_chr_val_handle, om);
                 }
                 xSemaphoreGive(sensor_data_mutex);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));  // 1/2Hz = 0.5s    // 1/0,5s = 2Hz
+        vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
     }
 }
 
 void app_main(void)
 {
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    
+    vTaskDelay(pdMS_TO_TICKS(1000));
+        
     // Initialize I2C-bus and I2C-sensors
     i2c_master_bus_handle_t bus_handle;
     init_i2c(&bus_handle);
     i2c_master_dev_handle_t tmp_handle = add_tmp117_i2c(bus_handle);
+    i2c_master_dev_handle_t max_handle = add_max30101_i2c(bus_handle);
+    i2c_master_dev_handle_t bmi_handle = add_bmi160_i2c(bus_handle);
+    
+    // Initialize SPI-bus and SPI-sensor
+    ESP_ERROR_CHECK(init_spi());
+    spi_device_handle_t gsr_handle = add_gsr_spi();
     
     ESP_LOGI(TAG, "All sensors initialized.");
     
@@ -189,11 +193,13 @@ void app_main(void)
 
     init_ble_server();
 
+    // Each task is pinned to core 1 to avoid conflicts with BLE stack on core 0. 
+    // Task priorities are set based on sensor read frequency and importance.
     xTaskCreatePinnedToCore(imu_task, "imu_task", 4096, bmi_handle, 10, NULL, 1);        // High-speed IMU Task (100Hz)
     xTaskCreatePinnedToCore(temp_task, "temp_task", 2048, tmp_handle, 2, NULL, 1);       // Slow Temperature Task (1Hz)
     xTaskCreatePinnedToCore(ppg_task, "ppg_task", 4096, max_handle, 9, NULL, 1);         // Heart Rate Task (50Hz)
+    xTaskCreatePinnedToCore(gsr_task, "gsr_task", 4096, gsr_handle, 8, NULL, 1);         // GSR Task (10Hz)
     xTaskCreatePinnedToCore(ble_update_task, "ble_update_task", 4096, NULL, 4, NULL, 1); // Send struct via BLE (100 ms)
 
     return;
 }
-

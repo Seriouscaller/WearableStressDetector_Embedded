@@ -16,12 +16,6 @@ typedef struct __attribute__((packed)) {
 } sensor_data_t;
 
 typedef struct {
-    uint32_t red_raw;
-    uint32_t ir_raw;
-    uint32_t green_raw; 
-} max30101_data_t;
-
-typedef struct {
     uint32_t temp;
 } tmp117_data_t;
 
