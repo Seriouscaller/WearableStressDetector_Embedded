@@ -8,3 +8,4 @@ extern uint16_t sensor_chr_val_handle;
 
 void init_ble_server(void);
 int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg);
+void ble_update_task(void *pvParameters);

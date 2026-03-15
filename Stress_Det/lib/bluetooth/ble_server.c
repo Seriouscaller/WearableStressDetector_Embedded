@@ -8,6 +8,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "types.h"
 #include "gatt.h"
+#include "board_config.h"
 
 static const char *TAG = "BLE";
 static uint8_t ble_addr_type;
@@ -133,4 +134,26 @@ void init_ble_server(void){
         NULL,
         0
     );
+}
+
+// Update BLE message buffer every 500 ms, and notify connected phone.
+void ble_update_task(void *pvParameters){
+    while (1){
+        // Only send if a phone is connected
+        if (conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+
+            // Is ble_sensor_payload free from producers?
+            if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE){
+                struct os_mbuf *om = ble_hs_mbuf_from_flat(&ble_sensor_payload, sizeof(ble_sensor_payload));
+                
+                // Notify connected phone with new sensor data. If om is NULL, it means 
+                // there was an error creating the mbuf.
+                if(om != NULL){
+                    ble_gatts_notify_custom(conn_handle, sensor_chr_val_handle, om);
+                }
+                xSemaphoreGive(sensor_data_mutex);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
+    }
 }

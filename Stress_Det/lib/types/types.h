@@ -1,5 +1,8 @@
 #pragma once
 #include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/queue.h"
 
 typedef struct __attribute__((packed)) {
     uint32_t uptime_ms;  
@@ -28,4 +31,10 @@ typedef struct {
     int16_t gyr_z; 
 } bmi160_data_t;
 
-
+typedef struct {
+    sensor_data_t *buffer;    // Pointer to the PSRAM block
+    uint32_t head;            // Next position to write
+    uint32_t tail;            // Oldest data position
+    uint32_t count;           // How many samples currently stored
+    SemaphoreHandle_t lock;   // Prevent read/write collisions
+} psram_ring_buffer_t;

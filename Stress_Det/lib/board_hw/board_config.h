@@ -19,3 +19,12 @@ I2C Devices:
 
 #define GSR_R_FIXED 100000.0f;
 #define GSR_V_REF   3.3f;
+
+// Sensor timings
+#define ONE_HZ_IN_MS 1000
+#define TWO_HZ_IN_MS 500
+#define TEN_HZ_IN_MS 100
+#define FIFTY_HZ_IN_MS 20
+#define ONEHUNDRED_HZ_IN_MS 10
+#define BLE_NOTIFY_INTERVAL_MS 500
+#define SNAPSHOT_SYNC_RATE 50
