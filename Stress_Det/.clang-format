@@ -1,0 +1,14 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+# Match your 4-space indentation
+IndentWidth: 4
+# Ensure braces are on new lines for functions (common in C)
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterStruct: false
+# Prevents the formatter from squashing your structs into one line
+ColumnLimit: 110
+AllowShortFunctionsOnASingleLine: None
+...

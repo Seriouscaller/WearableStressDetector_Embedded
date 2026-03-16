@@ -4,6 +4,9 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "i2c_common.h"
+
+static esp_err_t upload_bmi260_config(i2c_master_dev_handle_t *dev_handle);
 
 static const char *TAG = "BMI260";
 
@@ -30,12 +33,6 @@ static const char *TAG = "BMI260";
 #define BMI260_PWR_GYR_EN (1 << 1)
 #define BMI260_PWR_ACC_EN (1 << 2)
 #define BMI260_PWR_TEMP_EN (1 << 3)
-
-static esp_err_t write_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t data)
-{
-    uint8_t buf[2] = {reg, data};
-    return i2c_master_transmit(dev, buf, 2, -1);
-}
 
 esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t *dev_handle)
 {
@@ -64,23 +61,10 @@ esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
         ESP_LOGE(TAG, "Read failed or Wrong ID. Got: 0x%02X, Err: %d", chip_id, ret);
         return ESP_FAIL;
     }
+
     vTaskDelay(pdMS_TO_TICKS(1));
 
-    // Prepare for config upload
-    write_reg(*dev_handle, BMI260_REG_INIT_CTRL, 0x00);
-
-    // Upload Config File (Burst write)
-    const size_t config_size = sizeof(bmi260_config_file);
-    uint8_t *burst_buf = malloc(config_size + 1);
-    burst_buf[0] = BMI260_REG_INIT_DATA;
-    memcpy(&burst_buf[1], bmi260_config_file, config_size);
-
-    ESP_LOGI(TAG, "Uploading configuration (%d bytes)...", config_size);
-    i2c_master_transmit(*dev_handle, burst_buf, config_size + 1, -1);
-    free(burst_buf);
-
-    // Finalize config upload
-    write_reg(*dev_handle, BMI260_REG_INIT_CTRL, BMI260_INIT_FINALIZE);
+    upload_bmi260_config(dev_handle);
     vTaskDelay(pdMS_TO_TICKS(25)); // Wait for initialization
 
     // Check internal status
@@ -96,6 +80,37 @@ esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     write_reg(*dev_handle, BMI260_REG_PWR_CTRL, BMI260_PWR_ACC_EN | BMI260_PWR_GYR_EN);
 
     ESP_LOGI(TAG, "BMI260 Initialized successfully");
+    return ESP_OK;
+}
+
+static esp_err_t upload_bmi260_config(i2c_master_dev_handle_t *dev_handle)
+{
+    // Prepare for config upload
+    write_reg(*dev_handle, BMI260_REG_INIT_CTRL, 0x00);
+
+    // Upload Config File (Burst write)
+    const size_t config_size = sizeof(bmi260_config_file);
+    uint8_t *burst_buf = malloc(config_size + 1);
+
+    if (burst_buf == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for config upload");
+        return ESP_FAIL;
+    }
+
+    burst_buf[0] = BMI260_REG_INIT_DATA;
+    memcpy(&burst_buf[1], bmi260_config_file, config_size);
+
+    ESP_LOGI(TAG, "Uploading configuration (%d bytes)...", config_size);
+    esp_err_t ret = i2c_master_transmit(*dev_handle, burst_buf, config_size + 1, -1);
+    free(burst_buf);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Config upload failed. Err: %d", ret);
+        return ret;
+    }
+
+    // Finalize config upload
+    write_reg(*dev_handle, BMI260_REG_INIT_CTRL, BMI260_INIT_FINALIZE);
     return ESP_OK;
 }
 

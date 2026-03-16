@@ -4,7 +4,7 @@
 I2C Devices:
 0x48 TMP117 Temperature Sensor
 0x57 MAX30101 PPG sensor
-0x69 BMI160 IMU Accelerometer & Gyroscope
+0x68 BMI260 IMU Accelerometer & Gyroscope
 */
 
 // I2C Definitions for PPG, IMU and Temperature Sensors
