@@ -1,8 +1,8 @@
 #pragma once
-#include <stdio.h>
 #include "ble_server.h"
-#include "services/gatt/ble_svc_gatt.h"
 #include "gatt.h"
+#include "services/gatt/ble_svc_gatt.h"
+#include <stdio.h>
 
 extern uint16_t sensor_chr_val_handle;
 
