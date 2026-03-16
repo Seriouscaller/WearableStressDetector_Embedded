@@ -17,6 +17,7 @@
 #include "tmp117.h"
 #include "gsr.h"
 #include "bmi160.h"
+#include "ppg_processing.h"
 
 uint16_t conn_handle;
 uint16_t sensor_chr_val_handle;
@@ -48,13 +49,31 @@ spi_device_handle_t add_gsr_spi() {
     return gsr_handle;
 }
 
-void display_raw_ppg(i2c_master_dev_handle_t max_handle, uint32_t* ppg_green){
+void display_raw_ppg(i2c_master_dev_handle_t max_handle, uint32_t* ppg_green)
+{
+    if (max30101_read_fifo(max_handle, ppg_green) == ESP_OK)
+    {
+        float raw = (float)(*ppg_green);
+
+        ppg_process_sample(raw);
+
+        ppg_features_t f = ppg_get_features();
+
+        printf(">HR:%f\n", f.hr);
+        printf(">RMSSD:%f\n", f.rmssd);
+        printf(">SDNN:%f\n", f.sdnn);
+    } else {
+        ESP_LOGW(TAG, "Failed to read MAX30101 sensor.");
+    }
+}
+
+/*void display_raw_ppg(i2c_master_dev_handle_t max_handle, uint32_t* ppg_green){
     if (max30101_read_fifo(max_handle, ppg_green) == ESP_OK) {
         printf(">PPG_Green_Raw:%lu\n", *ppg_green);
     } else {
         ESP_LOGW(TAG, "Failed to read MAX30101 sensor.");
     }
-}
+}*/
 
 void display_temperature(i2c_master_dev_handle_t tmp_handle, float* temperature){
     esp_err_t ret = tmp117_read_temp(tmp_handle, temperature);
