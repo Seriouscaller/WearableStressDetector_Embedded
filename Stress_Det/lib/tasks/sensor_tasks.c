@@ -25,7 +25,7 @@ extern QueueHandle_t storage_queue;
 void imu_task(void *pvParameters)
 {
     i2c_master_dev_handle_t bmi_handle = (i2c_master_dev_handle_t)pvParameters;
-    bmi160_data_t imu_data = {0};
+    bmi_data_t imu_data = {0};
 
     while (1) {
         if (bmi160_read(bmi_handle, &imu_data) == ESP_OK) {
@@ -40,9 +40,8 @@ void imu_task(void *pvParameters)
                 ble_sensor_payload.gyr_z = imu_data.gyr_z;
 
                 xSemaphoreGive(sensor_data_mutex);
-                ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x,
-                         imu_data.acc_y, imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y,
-                         imu_data.gyr_z);
+                ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x, imu_data.acc_y,
+                         imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
             }
         } else {
             ESP_LOGW(TAG, "Failed to read BMI160 sensor.");

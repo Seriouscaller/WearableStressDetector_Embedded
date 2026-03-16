@@ -1,5 +1,6 @@
 #include "ble_server.h"
 #include "bmi160.h"
+#include "bmi260.h"
 #include "board_config.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
@@ -58,18 +59,24 @@ spi_device_handle_t add_gsr_spi()
 
 void app_main(void)
 {
-    vTaskDelay(pdMS_TO_TICKS(8000));
+    vTaskDelay(pdMS_TO_TICKS(4000));
 
     // Initialize I2C-bus and I2C-sensors
     i2c_master_bus_handle_t bus_handle;
     init_i2c(&bus_handle);
+
+    i2c_master_dev_handle_t bmi260_handle;
+    ESP_ERROR_CHECK(
+        bmi260_init(bus_handle, &bmi260_handle)); // BMI260 must be initialized before adding devices to bus
+    /*
     i2c_master_dev_handle_t tmp_handle = add_tmp117_i2c(bus_handle);
     i2c_master_dev_handle_t max_handle = add_max30101_i2c(bus_handle);
     i2c_master_dev_handle_t bmi_handle = add_bmi160_i2c(bus_handle);
-
+    */
+    /*
     // Initialize SPI-bus and SPI-sensor
     ESP_ERROR_CHECK(init_spi());
-    spi_device_handle_t gsr_handle = add_gsr_spi();
+    spi_device_handle_t gsr_handle = add_gsr_spi();*/
 
     ESP_LOGI(TAG, "All sensors initialized.");
 
@@ -83,7 +90,7 @@ void app_main(void)
 
     // Each task is pinned to core 1 to avoid conflicts with BLE stack on core 0.
     // Task priorities are set based on sensor read frequency and importance.
-
+    /*
     // High-speed IMU Task (100Hz
     xTaskCreatePinnedToCore(imu_task, "imu_task", 4096, bmi_handle, 10, NULL, 1);
     // Slow Temperature Task (1Hz)
@@ -100,5 +107,14 @@ void app_main(void)
     xTaskCreatePinnedToCore(sync_heartbeat_task, "sync_task", 4096, NULL, 5, NULL, 1);
     // Print buffer status every 5 seconds
     xTaskCreatePinnedToCore(print_buffer_status_task, "prt_bufr_status_tsk", 4096, NULL, 1, NULL, 1);
+    */
+    bmi_data_t bmi_data;
+
+    while (1) {
+        bmi260_read(bmi260_handle, &bmi_data);
+        ESP_LOGI(TAG, "BMI260 Data - Accel: (%d, %d, %d) | Gyro: (%d, %d, %d)", bmi_data.acc_x,
+                 bmi_data.acc_y, bmi_data.acc_z, bmi_data.gyr_x, bmi_data.gyr_y, bmi_data.gyr_z);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
     return;
 }

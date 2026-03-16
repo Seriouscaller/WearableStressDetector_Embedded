@@ -24,7 +24,7 @@ typedef struct {
     int16_t gyr_x;
     int16_t gyr_y;
     int16_t gyr_z;
-} bmi160_data_t;
+} bmi_data_t;
 
 typedef struct {
     sensor_data_t *buffer;  // Pointer to the PSRAM block
