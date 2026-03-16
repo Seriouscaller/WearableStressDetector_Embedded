@@ -23,9 +23,8 @@ static const char *TAG = "STORAGE";
 
 // Initializes the ring buffer in PSRAM for storing sensor data. This function allocates a large block of memory 
 // in PSRAM to hold the sensor data samples, and sets up the necessary variables for managing the ring buffer. 
-// The buffer is designed to hold approximately 2 hours of data at a 20Hz sampling rate, which is around 144,000
-// samples. Each sample consists of a snapshot of all sensor readings at a given time, stored in a packed struct 
-// format to minimize memory usage.
+// The buffer is designed to hold approximately 2 hours of data at a 20Hz sampling rate. Each sample consists
+// of a snapshot of all sensor readings at a given time.
 void init_psram_buffer() {
     size_t buffer_size = LOG_SAMPLES_COUNT * sizeof(sensor_data_t);
     
@@ -41,7 +40,7 @@ void init_psram_buffer() {
     sensor_log.head = 0;
     sensor_log.tail = 0;
     sensor_log.count = 0;
-    sensor_log.lock = xSemaphoreCreateMutex();
+    sensor_log.lock = xSemaphoreCreateMutex();  // Semaphore to protect buffer access
     
     ESP_LOGI("PSRAM", "Allocated %.2f MB for 2-hour log", (float)buffer_size / (1024 * 1024));
 }
@@ -75,7 +74,7 @@ void print_buffer_status_task(void *pvParameters) {
         if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(10)) == pdTRUE) {
             
             // Calculate the time stored based on the 20Hz (50ms) sync rate
-            float seconds_stored = sensor_log.count * 0.050f; 
+            float seconds_stored = sensor_log.count * (SNAPSHOT_SYNC_RATE / 1000.0f); 
             float minutes_stored = seconds_stored / 60.0f;
             float fill_percentage = ((float)sensor_log.count / LOG_SAMPLES_COUNT) * 100.0f;
 
