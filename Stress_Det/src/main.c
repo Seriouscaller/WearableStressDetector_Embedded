@@ -79,7 +79,7 @@ void app_main(void)
     storage_queue = xQueueCreate(20, sizeof(sensor_data_t)); // Queue can hold 20 sensor_data_t structs
 
     init_ble_server();
-    init_psram_buffer(); // Allocate the large PSRAM buffer for logging sensor data
+    ESP_ERROR_CHECK(init_psram_buffer()); // Allocate the large PSRAM buffer for logging sensor data
 
     // Each task is pinned to core 1 to avoid conflicts with BLE stack on core 0.
     // Task priorities are set based on sensor read frequency and importance.
