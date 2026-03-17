@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#define QUEUE_LENGTH 40
 uint16_t conn_handle;
 uint16_t sensor_chr_val_handle;
 SemaphoreHandle_t sensor_data_mutex;
@@ -76,7 +77,8 @@ void app_main(void)
     // Semaphore's job is to prevent multiple processes to read/write to ble_payload struct
     // at the same time.
     sensor_data_mutex = xSemaphoreCreateMutex();
-    storage_queue = xQueueCreate(20, sizeof(sensor_data_t)); // Queue can hold 20 sensor_data_t structs
+    storage_queue = xQueueCreate(QUEUE_LENGTH,
+                                 sizeof(sensor_data_t)); // Queue can hold QUEUE_LENGTH sensor_data_t structs
 
     init_ble_server();
     ESP_ERROR_CHECK(init_psram_buffer()); // Allocate the large PSRAM buffer for logging sensor data

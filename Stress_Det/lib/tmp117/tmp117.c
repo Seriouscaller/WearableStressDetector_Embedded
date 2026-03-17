@@ -55,5 +55,10 @@ esp_err_t tmp117_read_temp(i2c_master_dev_handle_t tmp_handle, float *temperatur
     int16_t raw_temp = (int16_t)((data[0] << 8) | data[1]);
     *temperature = (float)raw_temp * TMP117_RESOLUTION;
 
+    // TMP117 can return negative temperatures. For our use case, we set any negative value to 0.
+    if (*temperature < 0) {
+        *temperature = 0;
+    }
+
     return ret;
 }
