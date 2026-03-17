@@ -33,8 +33,7 @@ esp_err_t init_psram_buffer()
     // Allocate the massive block in Octal PSRAM
     sensor_log.buffer = (sensor_data_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
 
-    if (sensor_log.buffer == NULL)
-    {
+    if (sensor_log.buffer == NULL) {
         ESP_LOGE("PSRAM", "Failed to allocate log buffer!");
         return ESP_FAIL;
     }
@@ -45,8 +44,7 @@ esp_err_t init_psram_buffer()
     sensor_log.count = 0;
     sensor_log.lock = xSemaphoreCreateMutex(); // Semaphore to protect buffer access
 
-    if (sensor_log.lock == NULL)
-    {
+    if (sensor_log.lock == NULL) {
         ESP_LOGE("PSRAM", "Failed to create buffer lock!");
         return ESP_FAIL;
     }
@@ -63,17 +61,21 @@ void sync_heartbeat_task(void *pvParameters)
 {
     sensor_data_t snapshot;
 
-    while (1)
-    {
+    while (1) {
         // Take a snapshot of the CURRENT state of all sensors
-        if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
-        {
+        if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             memcpy(&snapshot, &ble_sensor_payload, sizeof(sensor_data_t));
             xSemaphoreGive(sensor_data_mutex);
 
             // Send this consistent snapshot to the storage task
             // If the queue is full, we drop the frame to keep the system real-time
-            xQueueSend(storage_queue, &snapshot, 0);
+            esp_err_t ret = xQueueSend(storage_queue, &snapshot, pdMS_TO_TICKS(5));
+            if (ret != pdPASS) {
+                ESP_LOGE(TAG, "Failed to send snapshot to storage queue");
+            }
+
+        } else {
+            ESP_LOGE(TAG, "Could not take mutex to read sensor data for snapshot. Data sample lost!");
         }
 
         // Logging rate
@@ -86,10 +88,8 @@ void sync_heartbeat_task(void *pvParameters)
 void print_buffer_status_task(void *pvParameters)
 {
 
-    while (1)
-    {
-        if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(10)) == pdTRUE)
-        {
+    while (1) {
+        if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(10)) == pdTRUE) {
             uint32_t samples_stored = sensor_log.count;
             uint32_t head_pos = sensor_log.head;
             uint32_t tail_pos = sensor_log.tail;
@@ -105,14 +105,11 @@ void print_buffer_status_task(void *pvParameters)
             ESP_LOGI(TAG, "Fill Level: %.2f%%", fill_percentage);
             ESP_LOGI(TAG, "Head Index: %lu | Tail Index: %lu", head_pos, tail_pos);
 
-            if (samples_stored >= LOG_SAMPLES_COUNT)
-            {
+            if (samples_stored >= LOG_SAMPLES_COUNT) {
                 ESP_LOGW(TAG, "Buffer is LOOPING (2h limit reached, overwriting oldest data)");
             }
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Could not take buffer lock to print status");
+        } else {
+            ESP_LOGE(TAG, "Semaphore timeout! Could not take buffer lock to print status");
         }
         vTaskDelay(pdMS_TO_TICKS(5000)); // Print status every 5 seconds
     }
@@ -125,15 +122,12 @@ void storage_task(void *pvParameters)
 {
     sensor_data_t received_data;
 
-    while (1)
-    {
+    while (1) {
         // Block until the sync_heartbeat_task sends a new snapshot
-        if (xQueueReceive(storage_queue, &received_data, portMAX_DELAY) == pdPASS)
-        {
+        if (xQueueReceive(storage_queue, &received_data, portMAX_DELAY) == pdPASS) {
 
             // Lock the buffer to prevent a "Read" task from accessing mid-update
-            if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(5)) == pdTRUE)
-            {
+            if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(5)) == pdTRUE) {
 
                 // Insert data at the current Head
                 sensor_log.buffer[sensor_log.head] = received_data;
@@ -142,18 +136,17 @@ void storage_task(void *pvParameters)
                 sensor_log.head = (sensor_log.head + 1) % LOG_SAMPLES_COUNT;
 
                 // Manage the Tail and Count
-                if (sensor_log.count < LOG_SAMPLES_COUNT)
-                {
+                if (sensor_log.count < LOG_SAMPLES_COUNT) {
                     sensor_log.count++;
-                }
-                else
-                {
+                } else {
                     // Buffer is full; the Tail must move to stay ahead of the Head
                     // This means we are now overwriting the oldest data
                     sensor_log.tail = (sensor_log.tail + 1) % LOG_SAMPLES_COUNT;
                 }
 
                 xSemaphoreGive(sensor_log.lock);
+            } else {
+                ESP_LOGE(TAG, "Semaphore timeout! Could not take buffer lock to store data");
             }
         }
     }
