@@ -8,14 +8,15 @@
 static const char *TAG = "TMP117";
 
 // --- TMP117 Definitions ---
-#define TMP117_ADDR               0x48
-#define TMP117_REG_DEVICE_ID      0x0F
-#define TMP117_REG_TEMP_RESULT    0x00
-#define TMP117_REG_CONFIG         0x01
-#define TMP117_RESOLUTION         0.0078125f
+#define TMP117_ADDR 0x48
+#define TMP117_REG_DEVICE_ID 0x0F
+#define TMP117_REG_TEMP_RESULT 0x00
+#define TMP117_REG_CONFIG 0x01
+#define TMP117_RESOLUTION 0.0078125f
 
 // Adds sensor to i2c
-esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t* tmp_handle){
+esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t *tmp_handle)
+{
 
     // Configure device with address 0x48
     i2c_device_config_t dev_cfg = {
@@ -26,7 +27,7 @@ esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
 
     // Add sensor to i2c-bus
     esp_err_t ret = i2c_master_bus_add_device(bus_handle, &dev_cfg, tmp_handle);
-    if(ret != ESP_OK){
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add device to i2c bus: %s", esp_err_to_name(ret));
         return ret;
     }
@@ -36,22 +37,23 @@ esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
 
 // Reads 2 Bytes from sensor. Converts from Little-end to Big-end for
 // correct data repr.
-esp_err_t tmp117_read_temp(i2c_master_dev_handle_t tmp_handle, float* temperature){
+esp_err_t tmp117_read_temp(i2c_master_dev_handle_t tmp_handle, float *temperature)
+{
     uint8_t reg_addr = TMP117_REG_TEMP_RESULT;
     uint8_t data[2] = {0};
 
-    // Tell sensor what register we like to read from, and how 
+    // Tell sensor what register we like to read from, and how
     // many Bytes. Sensor returns data.
     esp_err_t ret = i2c_master_transmit_receive(tmp_handle, &reg_addr, 1, data, 2, -1);
 
-    if(ret != ESP_OK){
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read temperature register: %s", esp_err_to_name);
         return ret;
     }
 
     // TMP117 store temp as Little-Endian. Convert to big endian.
-    int16_t raw_temp = (int16_t) ((data[0] << 8) | data[1]);
-    *temperature = (float) raw_temp * TMP117_RESOLUTION;
+    int16_t raw_temp = (int16_t)((data[0] << 8) | data[1]);
+    *temperature = (float)raw_temp * TMP117_RESOLUTION;
 
     return ret;
 }
