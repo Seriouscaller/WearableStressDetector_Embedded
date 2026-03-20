@@ -12,7 +12,7 @@
 
 static const char *TAG = "BLE";
 static uint8_t ble_addr_type;
-uint16_t conn_handle;
+extern uint16_t conn_handle;
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
 
@@ -133,4 +133,3 @@ void init_ble_server(void)
     // Starting and running BLE on core 0
     xTaskCreatePinnedToCore(ble_host_task, "ble_host_task", 4096, NULL, 5, NULL, 0);
 }
-

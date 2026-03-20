@@ -27,9 +27,16 @@ typedef struct {
 } bmi_data_t;
 
 typedef struct {
-    sensor_data_t *buffer;  // Pointer to the PSRAM block
+    sensor_data_t *data;    // Pointer to the PSRAM block
     uint32_t head;          // Next position to write
     uint32_t tail;          // Oldest data position
     uint32_t count;         // How many samples currently stored
     SemaphoreHandle_t lock; // Prevent read/write collisions
 } psram_ring_buffer_t;
+
+typedef struct {
+    uint32_t *data;         // Pointer to the PSRAM block
+    uint32_t head;          // Next position to write
+    uint32_t count;         // How many samples currently stored
+    SemaphoreHandle_t lock; // Prevent read/write collisions
+} psram_ppg_ring_buffer_t;

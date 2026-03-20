@@ -35,7 +35,16 @@ I2C Devices:
 // Time before snapshot of ble payload is taken and sent to queue
 #define SNAPSHOT_SYNC_RATE 50
 
-// Number of samples that can be stored in PSRAM buffer.
-// ~2 hours at 20Hz (20Hz * 60s * 120m) = 144000 samples
-// 144000 * 24B (size of sensor_data_t) = 3.46MB
-#define LOG_SAMPLES_COUNT 144000
+// Number of data collection samples that can be stored in
+// PSRAM buffer. ~2 hours at 20Hz (20Hz * 60s * 120m) =
+// 144000 samples. 144000 * 24B (size of sensor_data_t) = 3.46MB
+#define DATA_COLLECTION_SAMPLES_COUNT 144000
+
+// Sliding window holds 90 seconds of ppg data
+// Circular buffer, which circles around
+#define SLIDING_WINDOW_PPG_SAMPLES_COUNT 20000
+
+// PPG Processing
+#define PPG_SAMPLE_RATE 100
+#define SNAPSHOT_LEN (30 * PPG_SAMPLE_RATE)  // 30s = 3000 samples
+#define RING_BUF_CAPACITY (SNAPSHOT_LEN * 3) // 90s = 9000 samples

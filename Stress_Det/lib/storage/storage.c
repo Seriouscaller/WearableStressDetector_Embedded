@@ -17,39 +17,35 @@
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
 extern QueueHandle_t storage_queue;
-
-psram_ring_buffer_t sensor_log;
+extern psram_ring_buffer_t sensor_log;
 
 static const char *TAG = "STORAGE";
 
-// Initializes the ring buffer in PSRAM for storing sensor data. This function allocates a large
-// block of memory in PSRAM to hold the sensor data samples, and sets up the necessary variables for
-// managing the ring buffer. The buffer is designed to hold approximately 2 hours of data at a 20Hz
-// sampling rate.
-esp_err_t init_psram_buffer()
+// Initializes a PSRAM ringbuffer
+esp_err_t init_psram_buffer(psram_ring_buffer_t *ring_buffer, uint32_t samples_count)
 {
-    size_t buffer_size = LOG_SAMPLES_COUNT * sizeof(sensor_data_t);
+    size_t buffer_size = samples_count * sizeof(sensor_data_t);
 
     // Allocate the massive block in Octal PSRAM
-    sensor_log.buffer = (sensor_data_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
+    ring_buffer->data = (sensor_data_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
 
-    if (sensor_log.buffer == NULL) {
-        ESP_LOGE("PSRAM", "Failed to allocate log buffer!");
+    if (ring_buffer->data == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate log buffer!");
         return ESP_FAIL;
     }
 
     // Initialize buffer variables
-    sensor_log.head = 0;
-    sensor_log.tail = 0;
-    sensor_log.count = 0;
-    sensor_log.lock = xSemaphoreCreateMutex(); // Semaphore to protect buffer access
+    ring_buffer->head = 0;
+    ring_buffer->tail = 0;
+    ring_buffer->count = 0;
+    ring_buffer->lock = xSemaphoreCreateMutex(); // Semaphore to protect buffer access
 
-    if (sensor_log.lock == NULL) {
-        ESP_LOGE("PSRAM", "Failed to create buffer lock!");
+    if (ring_buffer->lock == NULL) {
+        ESP_LOGE(TAG, "Failed to create buffer lock!");
         return ESP_FAIL;
     }
 
-    ESP_LOGI("PSRAM", "Allocated %.2f MB for 2-hour log", (float)buffer_size / (1024 * 1024));
+    ESP_LOGI(TAG, "Allocated %.2f MB for 2-hour log", (float)buffer_size / (1024 * 1024));
     return ESP_OK;
 }
 
@@ -85,7 +81,7 @@ void sync_heartbeat_task(void *pvParameters)
 
 // Task that gives status updates about PSRAM. How much of it is filled up, and how much remains
 // etc.
-void print_buffer_status_task(void *pvParameters)
+void print_data_collection_status_task(void *pvParameters)
 {
 
     while (1) {
@@ -97,15 +93,15 @@ void print_buffer_status_task(void *pvParameters)
 
             float seconds_stored = samples_stored * (SNAPSHOT_SYNC_RATE / 1000.0f);
             float minutes_stored = seconds_stored / 60.0f;
-            float fill_percentage = ((float)samples_stored / LOG_SAMPLES_COUNT) * 100.0f;
+            float fill_percentage = ((float)samples_stored / DATA_COLLECTION_SAMPLES_COUNT) * 100.0f;
 
             ESP_LOGI(TAG, "--- PSRAM Buffer Status ---");
-            ESP_LOGI(TAG, "Samples: %lu / %d", samples_stored, LOG_SAMPLES_COUNT);
+            ESP_LOGI(TAG, "Samples: %lu / %d", samples_stored, DATA_COLLECTION_SAMPLES_COUNT);
             ESP_LOGI(TAG, "Time Stored: %.2f minutes (%.1f seconds)", minutes_stored, seconds_stored);
             ESP_LOGI(TAG, "Fill Level: %.2f%%", fill_percentage);
             ESP_LOGI(TAG, "Head Index: %lu | Tail Index: %lu", head_pos, tail_pos);
 
-            if (samples_stored >= LOG_SAMPLES_COUNT) {
+            if (samples_stored >= DATA_COLLECTION_SAMPLES_COUNT) {
                 ESP_LOGW(TAG, "Buffer is LOOPING (2h limit reached, overwriting oldest data)");
             }
         } else {
@@ -130,18 +126,18 @@ void storage_task(void *pvParameters)
             if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(5)) == pdTRUE) {
 
                 // Insert data at the current Head
-                sensor_log.buffer[sensor_log.head] = received_data;
+                sensor_log.data[sensor_log.head] = received_data;
 
                 // Advance the Head (with wrap-around)
-                sensor_log.head = (sensor_log.head + 1) % LOG_SAMPLES_COUNT;
+                sensor_log.head = (sensor_log.head + 1) % PS;
 
                 // Manage the Tail and Count
-                if (sensor_log.count < LOG_SAMPLES_COUNT) {
+                if (sensor_log.count < DATA_COLLECTION_SAMPLES_COUNT) {
                     sensor_log.count++;
                 } else {
                     // Buffer is full; the Tail must move to stay ahead of the Head
                     // This means we are now overwriting the oldest data
-                    sensor_log.tail = (sensor_log.tail + 1) % LOG_SAMPLES_COUNT;
+                    sensor_log.tail = (sensor_log.tail + 1) % DATA_COLLECTION_SAMPLES_COUNT;
                 }
 
                 xSemaphoreGive(sensor_log.lock);

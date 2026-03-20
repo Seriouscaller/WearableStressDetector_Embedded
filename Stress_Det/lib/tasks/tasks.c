@@ -12,6 +12,8 @@
 #include "max30101.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "ppg_processing.h"
+#include "shared_variables.h"
 #include "spi_common.h"
 #include "tmp117.h"
 #include "types.h"
@@ -30,12 +32,15 @@ static void print_buffer_status_task(void *pvParameters);
 static void storage_task(void *pvParameters);
 
 static const char *TAG = "SENSOR_TASKS";
-uint16_t sensor_chr_val_handle;
+extern uint16_t sensor_chr_val_handle;
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
 extern QueueHandle_t storage_queue;
 extern uint16_t conn_handle;
 extern psram_ring_buffer_t sensor_log;
+extern TaskHandle_t xPpgProcessingTaskHandle;
+extern psram_ppg_ring_buffer_t ppg_sliding_window;
+extern uint32_t processing_buffer;
 
 void create_tasks(i2c_master_dev_handle_t tmp_handle, i2c_master_dev_handle_t max_handle,
                   i2c_master_dev_handle_t bmi_handle, spi_device_handle_t gsr_handle)
@@ -59,7 +64,27 @@ void create_tasks(i2c_master_dev_handle_t tmp_handle, i2c_master_dev_handle_t ma
     xTaskCreatePinnedToCore(storage_task, "storage_task", 4096, NULL, 3, NULL, 1);
     // Print status of buffer every 5 seconds
     xTaskCreatePinnedToCore(print_buffer_status_task, "prt_bufr_status_tsk", 4096, NULL, 1, NULL, 1);
+    // PPG Processing
+    xTaskCreatePinnedToCore(ppg_processing_task, "PPG_proc", 4096, NULL, 5, &xPpgProcessingTaskHandle, 1);
 };
+
+void ppg_processing_task(void *pvParameters)
+{
+    while (1) {
+        // Waits indefinetely for the sampling task to notify that new data is available
+        uint32_t thread_notification = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        if (thread_notification > 0) {
+            if (get_ppg_snapshot(&ppg_sliding_window, &processing_buffer)) {
+                ESP_LOGI(TAG, "Snapshot copied from PPG-buffer!");
+                // TODO: Run function to calculate HR, HRV - Patrik
+
+            } else {
+                ESP_LOGE(TAG, "Failed to copy snapshot of PPG-buffer!");
+            }
+        }
+    }
+}
 
 // Sampling of IMU sensor every 10 ms (100 Hz).
 // Adds read data to shared ble_sensor_payload struct
@@ -87,7 +112,7 @@ static void imu_bmi260_task(void *pvParameters)
         } else {
             ESP_LOGW(TAG, "Failed to read BMI260 sensor.");
         }
-        vTaskDelay(pdMS_TO_TICKS(IMU_SAMPLING_RATE_HZ));
+        vTaskDelay(pdMS_TO_TICKS(IMU_SAMPLING_RATE_IN_MS));
     }
 }
 
@@ -107,7 +132,7 @@ static void temp_task(void *pvParameters)
                 ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(TEMP_SAMPLING_RATE_HZ));
+        vTaskDelay(pdMS_TO_TICKS(TEMP_SAMPLING_RATE_IN_MS));
     }
 }
 
@@ -130,7 +155,7 @@ static void ppg_task(void *pvParameters)
         } else {
             ESP_LOGW(TAG, "Failed to read MAX30101 sensor.");
         }
-        vTaskDelay(pdMS_TO_TICKS(PPG_SAMPLING_RATE_HZ));
+        vTaskDelay(pdMS_TO_TICKS(PPG_SAMPLING_RATE_IN_MS));
     }
 }
 
@@ -153,7 +178,7 @@ static void gsr_task(void *pvParameters)
         } else {
             ESP_LOGW(TAG, "Failed to read GSR sensor.");
         }
-        vTaskDelay(pdMS_TO_TICKS(GSR_SAMPLING_RATE_HZ));
+        vTaskDelay(pdMS_TO_TICKS(GSR_SAMPLING_RATE_IN_MS));
     }
 }
 
@@ -213,15 +238,15 @@ static void print_buffer_status_task(void *pvParameters)
 
             float seconds_stored = sensor_log.count * (SNAPSHOT_SYNC_RATE / 1000.0f);
             float minutes_stored = seconds_stored / 60.0f;
-            float fill_percentage = ((float)sensor_log.count / LOG_SAMPLES_COUNT) * 100.0f;
+            float fill_percentage = ((float)sensor_log.count / DATA_COLLECTION_SAMPLES_COUNT) * 100.0f;
 
             ESP_LOGI(TAG, "--- PSRAM Buffer Status ---");
-            ESP_LOGI(TAG, "Samples: %lu / %d", sensor_log.count, LOG_SAMPLES_COUNT);
+            ESP_LOGI(TAG, "Samples: %lu / %d", sensor_log.count, DATA_COLLECTION_SAMPLES_COUNT);
             ESP_LOGI(TAG, "Time Stored: %.2f minutes (%.1f seconds)", minutes_stored, seconds_stored);
             ESP_LOGI(TAG, "Fill Level: %.2f%%", fill_percentage);
             ESP_LOGI(TAG, "Head Index: %lu | Tail Index: %lu", sensor_log.head, sensor_log.tail);
 
-            if (sensor_log.count >= LOG_SAMPLES_COUNT) {
+            if (sensor_log.count >= DATA_COLLECTION_SAMPLES_COUNT) {
                 ESP_LOGW(TAG, "Buffer is LOOPING (2h limit reached, overwriting oldest data)");
             }
 
@@ -248,18 +273,18 @@ static void storage_task(void *pvParameters)
             if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(5)) == pdTRUE) {
 
                 // Insert data at the current Head
-                sensor_log.buffer[sensor_log.head] = received_data;
+                sensor_log.data[sensor_log.head] = received_data;
 
                 // Advance the Head (with wrap-around)
-                sensor_log.head = (sensor_log.head + 1) % LOG_SAMPLES_COUNT;
+                sensor_log.head = (sensor_log.head + 1) % DATA_COLLECTION_SAMPLES_COUNT;
 
                 // Manage the Tail and Count
-                if (sensor_log.count < LOG_SAMPLES_COUNT) {
+                if (sensor_log.count < DATA_COLLECTION_SAMPLES_COUNT) {
                     sensor_log.count++;
                 } else {
                     // Buffer is full; the Tail must move to stay ahead of the Head
                     // This means we are now overwriting the oldest data
-                    sensor_log.tail = (sensor_log.tail + 1) % LOG_SAMPLES_COUNT;
+                    sensor_log.tail = (sensor_log.tail + 1) % DATA_COLLECTION_SAMPLES_COUNT;
                 }
 
                 xSemaphoreGive(sensor_log.lock);
