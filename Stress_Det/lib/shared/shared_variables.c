@@ -17,3 +17,6 @@ uint16_t conn_handle;
 psram_ppg_ring_buffer_t ppg_sliding_window;
 TaskHandle_t xPpgProcessingTaskHandle = NULL;
 uint32_t processing_buffer[SNAPSHOT_LEN]; // 30 seconds of data approx 12 KB in RAM
+
+// Debugging
+sensor_debug_cfg_t debug_cfg;

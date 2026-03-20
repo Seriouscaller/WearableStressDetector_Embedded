@@ -40,3 +40,11 @@ typedef struct {
     uint32_t count;         // How many samples currently stored
     SemaphoreHandle_t lock; // Prevent read/write collisions
 } psram_ppg_ring_buffer_t;
+
+typedef struct {
+    bool enable_serial_output; // Master switch for Serial
+    bool ppg_debug;            // MAX30101
+    bool gsr_debug;            // CJMCU 6701
+    bool imu_debug;            // BMI160
+    bool temp_debug;           // TMP117
+} sensor_debug_cfg_t;

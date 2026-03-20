@@ -31,6 +31,7 @@ extern QueueHandle_t storage_queue; // Queue for storing sensor data before flas
 extern psram_ring_buffer_t sensor_log;
 extern psram_ppg_ring_buffer_t ppg_sliding_window;
 static const char *TAG = "MAIN";
+extern sensor_debug_cfg_t debug_cfg;
 
 #define STORAGE_QUEUE_LENGTH 40
 

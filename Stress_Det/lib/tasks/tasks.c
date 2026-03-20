@@ -32,7 +32,7 @@ static void print_buffer_status_task(void *pvParameters);
 static void storage_task(void *pvParameters);
 
 static const char *TAG = "SENSOR_TASKS";
-bool show_snsr_readings = false;
+extern bool show_snsr_readings;
 extern uint16_t sensor_chr_val_handle;
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
