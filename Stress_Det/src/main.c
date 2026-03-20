@@ -11,6 +11,7 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "nvs_flash.h"
+#include "ppg_processing.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "shared_variables.h"
@@ -28,13 +29,14 @@ extern SemaphoreHandle_t sensor_data_mutex;
 extern sensor_data_t ble_sensor_payload;
 extern QueueHandle_t storage_queue; // Queue for storing sensor data before flash write
 extern psram_ring_buffer_t sensor_log;
+extern psram_ppg_ring_buffer_t ppg_sliding_window;
 static const char *TAG = "MAIN";
 
 #define STORAGE_QUEUE_LENGTH 40
 
 void app_main(void)
 {
-    vTaskDelay(pdMS_TO_TICKS(4000));
+    // vTaskDelay(pdMS_TO_TICKS(4000));
 
     i2c_master_bus_handle_t bus_handle;
     i2c_master_dev_handle_t tmp_handle, max_handle, bmi_handle;
@@ -64,6 +66,8 @@ void app_main(void)
     ESP_ERROR_CHECK(init_psram_buffer(
         &sensor_log,
         DATA_COLLECTION_SAMPLES_COUNT)); // Allocate the large PSRAM buffer for data collection
+
+    ESP_ERROR_CHECK(init_ppg_psram_buffer(&ppg_sliding_window, RING_BUF_CAPACITY));
 
     create_tasks(tmp_handle, max_handle, bmi_handle, gsr_handle);
 

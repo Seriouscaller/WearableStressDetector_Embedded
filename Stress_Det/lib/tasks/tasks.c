@@ -32,6 +32,7 @@ static void print_buffer_status_task(void *pvParameters);
 static void storage_task(void *pvParameters);
 
 static const char *TAG = "SENSOR_TASKS";
+bool show_snsr_readings = false;
 extern uint16_t sensor_chr_val_handle;
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
@@ -63,8 +64,8 @@ void create_tasks(i2c_master_dev_handle_t tmp_handle, i2c_master_dev_handle_t ma
     // Storage task that receives snapshots from queue and writes to PSRAM ring buffer
     xTaskCreatePinnedToCore(storage_task, "storage_task", 4096, NULL, 3, NULL, 1);
     // Print status of buffer every 5 seconds
-    xTaskCreatePinnedToCore(print_buffer_status_task, "prt_bufr_status_tsk", 4096, NULL, 1, NULL, 1);
-    // PPG Processing
+    // xTaskCreatePinnedToCore(print_buffer_status_task, "prt_bufr_status_tsk", 4096, NULL, 1, NULL, 1);
+    // PPG Processing. Waiting for a notify from add_sample function
     xTaskCreatePinnedToCore(ppg_processing_task, "PPG_proc", 4096, NULL, 5, &xPpgProcessingTaskHandle, 1);
 };
 
@@ -75,10 +76,10 @@ void ppg_processing_task(void *pvParameters)
         uint32_t thread_notification = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         if (thread_notification > 0) {
-            if (get_ppg_snapshot(&ppg_sliding_window, &processing_buffer)) {
+            if (get_ppg_snapshot(&ppg_sliding_window, &processing_buffer) == ESP_OK) {
                 ESP_LOGI(TAG, "Snapshot copied from PPG-buffer!");
                 // TODO: Run function to calculate HR, HRV - Patrik
-
+                debug_ppg_buffer_status(&ppg_sliding_window);
             } else {
                 ESP_LOGE(TAG, "Failed to copy snapshot of PPG-buffer!");
             }
@@ -106,8 +107,10 @@ static void imu_bmi260_task(void *pvParameters)
                 ble_sensor_payload.gyr_z = imu_data.gyr_z;
 
                 xSemaphoreGive(sensor_data_mutex);
-                ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x, imu_data.acc_y,
-                         imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
+                if (show_snsr_readings) {
+                    ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x, imu_data.acc_y,
+                             imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
+                }
             }
         } else {
             ESP_LOGW(TAG, "Failed to read BMI260 sensor.");
@@ -129,7 +132,8 @@ static void temp_task(void *pvParameters)
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 ble_sensor_payload.temp_raw = (uint16_t)(current_temp * 100);
                 xSemaphoreGive(sensor_data_mutex);
-                ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
+                if (show_snsr_readings)
+                    ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(TEMP_SAMPLING_RATE_IN_MS));
@@ -149,7 +153,12 @@ static void ppg_task(void *pvParameters)
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 ble_sensor_payload.ppg_green = current_ppg;
                 xSemaphoreGive(sensor_data_mutex);
-                ESP_LOGI(TAG, "Read PPG: %lu", current_ppg);
+
+                // Add sample to ppg-sliding-window
+                add_sample(&ppg_sliding_window, current_ppg);
+
+                if (show_snsr_readings)
+                    ESP_LOGI(TAG, "Read PPG: %lu", current_ppg);
             }
 
         } else {
@@ -172,7 +181,8 @@ static void gsr_task(void *pvParameters)
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 ble_sensor_payload.gsr = current_gsr;
                 xSemaphoreGive(sensor_data_mutex);
-                ESP_LOGI(TAG, "Read GSR: %u", current_gsr);
+                if (show_snsr_readings)
+                    ESP_LOGI(TAG, "Read GSR: %u", current_gsr);
             }
 
         } else {

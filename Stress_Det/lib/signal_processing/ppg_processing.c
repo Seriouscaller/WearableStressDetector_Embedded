@@ -13,14 +13,14 @@ makes a copy every second to a static array.
 #include "types.h"
 #include <stdio.h>
 
-static void add_sample(psram_ppg_ring_buffer_t *buffer, uint32_t sample);
+static void print_snapshot_summary(uint32_t *buffer, size_t len);
 
 extern psram_ppg_ring_buffer_t ppg_sliding_window;
 static const char *TAG = "PPG_PROC";
 extern TaskHandle_t xPpgProcessingTaskHandle;
 extern uint32_t processing_buffer; // 30 seconds of data approx 12 KB in RAM
 
-static void add_sample(psram_ppg_ring_buffer_t *buffer, uint32_t sample)
+void add_sample(psram_ppg_ring_buffer_t *buffer, uint32_t sample)
 {
     if (xSemaphoreTake(buffer->lock, pdMS_TO_TICKS(5)) == pdTRUE) {
         buffer->data[buffer->head] = sample;
@@ -32,11 +32,11 @@ static void add_sample(psram_ppg_ring_buffer_t *buffer, uint32_t sample)
         xSemaphoreGive(buffer->lock);
 
         // Is there enough data for a snapshot?
-        if (buffer->count >= SNAPSHOT_LEN && (buffer->count % PPG_SAMPLE_RATE == 0)) {
-            ESP_LOGI(TAG, "Enough data for snapshot!");
-            // Trigger task!
+        if (buffer->count >= SNAPSHOT_LEN && (buffer->head % PPG_SAMPLE_RATE == 0)) {
+            // Notify other task that one sample was added to ppg sliding window buffer
             if (xPpgProcessingTaskHandle != NULL) {
                 xTaskNotifyGive(xPpgProcessingTaskHandle);
+                ESP_LOGI(TAG, "PPG-proc task notified!");
             }
         }
     } else {
@@ -122,11 +122,47 @@ esp_err_t get_ppg_snapshot(psram_ppg_ring_buffer_t *ppg_buffer, uint32_t *dest_a
     return ESP_OK;
 }
 
-void test()
+void debug_ppg_buffer_status(psram_ppg_ring_buffer_t *rb)
 {
+    if (rb == NULL || rb->lock == NULL)
+        return;
 
-    esp_err_t ret = init_ppg_psram_buffer(&ppg_sliding_window, RING_BUF_CAPACITY);
+    if (xSemaphoreTake(rb->lock, pdMS_TO_TICKS(10)) == pdTRUE) {
+        uint32_t num_of_samples = rb->count;
+        uint32_t head_of_buffer = rb->head;
+        xSemaphoreGive(rb->lock);
 
-    uint32_t ppg_sample = 120;
-    add_sample(&ppg_sliding_window, ppg_sample);
-};
+        float fullness = ((float)num_of_samples / RING_BUF_CAPACITY) * 100.0f;
+
+        // The "Tail" is the oldest data in the 90s buffer
+        // If count < capacity, tail is 0. If full, tail is the head.
+        uint32_t tail = (num_of_samples < RING_BUF_CAPACITY) ? 0 : head_of_buffer;
+
+        ESP_LOGI("DEBUG_BUF", "--- PPG Buffer Status ---");
+        ESP_LOGI("DEBUG_BUF", "Capacity:  %d samples (90s)", RING_BUF_CAPACITY);
+        ESP_LOGI("DEBUG_BUF", "Current:   %lu samples", num_of_samples);
+        ESP_LOGI("DEBUG_BUF", "Fullness:  %.2f%%", fullness);
+        ESP_LOGI("DEBUG_BUF", "Head Pos:  %lu (Next Write)", head_of_buffer);
+        ESP_LOGI("DEBUG_BUF", "Tail Pos:  %lu (Oldest Data)", tail);
+
+        // Snapshot specific info
+        if (num_of_samples >= SNAPSHOT_LEN) {
+            int32_t snap_start = (int32_t)head_of_buffer - SNAPSHOT_LEN;
+            if (snap_start < 0)
+                snap_start += RING_BUF_CAPACITY;
+            ESP_LOGI("DEBUG_BUF", "Last Snap: Starts at index %ld", snap_start);
+        } else {
+            ESP_LOGW("DEBUG_BUF", "Snapshot:  WAITING (%lu/%d samples)", num_of_samples, SNAPSHOT_LEN);
+        }
+        ESP_LOGI("DEBUG_BUF", "-------------------------");
+    }
+}
+
+static void print_snapshot_summary(uint32_t *buffer, size_t len)
+{
+    ESP_LOGI("DATA_CHECK", "--- Snapshot Data (Every 100th sample) ---");
+    for (int i = 0; i < len; i += 100) {
+        printf("[%d]: %lu\n", i, buffer[i]);
+    }
+    ESP_LOGI("DATA_CHECK", "------------------------------------------");
+}
