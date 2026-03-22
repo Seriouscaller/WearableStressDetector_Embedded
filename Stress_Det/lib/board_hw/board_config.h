@@ -7,12 +7,12 @@ I2C Devices:
 0x68 BMI260 IMU Accelerometer & Gyroscope
 */
 
-// I2C Definitions for PPG, IMU and Temperature Sensors
+// I2C Master Definitions for PPG, IMU and Temperature Sensors
 #define I2C_MASTER_SDA_IO 5 // Physical Pin D4 (S3)
 #define I2C_MASTER_SCL_IO 6 // Physical Pin D5 (S3)
 #define I2C_MASTER_FREQ_HZ 400000
 
-// SPI Definitions for GSR Sensor
+// SPI Master Definitions for GSR Sensor
 #define SPI_NUM_MISO 8 // XIAO D9
 #define SPI_NUM_CLK 7  // XIAO D8
 #define SPI_NUM_CS 2

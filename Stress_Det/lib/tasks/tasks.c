@@ -109,12 +109,12 @@ static void imu_bmi260_task(void *pvParameters)
                 ble_sensor_payload.gyr_z = imu_data.gyr_z;
 
                 xSemaphoreGive(sensor_data_mutex);
-                if (show_snsr_readings && !show_teleplot) {
-                    ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x, imu_data.acc_y,
-                             imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
-                } else if (show_snsr_readings && show_teleplot) {
+                if (show_teleplot) {
                     printf(">Ax: %d\n>Ay: %d\n>Az: %d\n>Gx: %d\n>Gy: %d\n>Gz: %d\n", imu_data.acc_x,
                            imu_data.acc_y, imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
+                } else if (!show_teleplot) {
+                    ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x, imu_data.acc_y,
+                             imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
                 }
             }
         } else {
@@ -137,10 +137,10 @@ static void temp_task(void *pvParameters)
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 ble_sensor_payload.temp_raw = (uint16_t)(current_temp * 100);
                 xSemaphoreGive(sensor_data_mutex);
-                if (show_snsr_readings && !show_teleplot) {
-                    ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
-                } else if (show_snsr_readings && show_teleplot) {
+                if (show_teleplot) {
                     printf(">Temp: %.2f\n", current_temp);
+                } else if (!show_teleplot) {
+                    ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(TEMP_SAMPLING_RATE_IN_MS));
@@ -165,10 +165,10 @@ static void ppg_task(void *pvParameters)
                 // Add sample to ppg-sliding-window
                 add_sample(&ppg_sliding_window, current_ppg);
 
-                if (show_snsr_readings && !show_teleplot) {
-                    ESP_LOGI(TAG, ">Read PPG: %lu", current_ppg);
-                } else if (show_snsr_readings && show_teleplot) {
+                if (show_teleplot) {
                     printf(">PPG: %lu\n", current_ppg);
+                } else if (!show_teleplot) {
+                    ESP_LOGI(TAG, ">Read PPG: %lu", current_ppg);
                 }
             }
 
@@ -192,10 +192,10 @@ static void gsr_task(void *pvParameters)
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 ble_sensor_payload.gsr = current_gsr;
                 xSemaphoreGive(sensor_data_mutex);
-                if (show_snsr_readings && !show_teleplot) {
-                    ESP_LOGI(TAG, "Read GSR: %u", current_gsr);
-                } else if (show_snsr_readings && show_teleplot) {
+                if (show_teleplot) {
                     printf(">GSR: %u\n", current_gsr);
+                } else if (!show_teleplot) {
+                    ESP_LOGI(TAG, "Read GSR: %u", current_gsr);
                 }
             }
 
