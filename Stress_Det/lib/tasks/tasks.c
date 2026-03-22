@@ -33,6 +33,7 @@ static void storage_task(void *pvParameters);
 
 static const char *TAG = "SENSOR_TASKS";
 extern bool show_snsr_readings;
+extern bool show_teleplot;
 extern uint16_t sensor_chr_val_handle;
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
@@ -96,6 +97,7 @@ static void imu_bmi260_task(void *pvParameters)
 
     while (1) {
         if (bmi260_read(bmi_handle, &imu_data) == ESP_OK) {
+
             // Update shared ble_sensor_payload with new IMU data. Mutex ensures that
             // only one task can access ble_sensor_payload at a time, preventing data corruption.
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -107,9 +109,12 @@ static void imu_bmi260_task(void *pvParameters)
                 ble_sensor_payload.gyr_z = imu_data.gyr_z;
 
                 xSemaphoreGive(sensor_data_mutex);
-                if (show_snsr_readings) {
+                if (show_snsr_readings && !show_teleplot) {
                     ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x, imu_data.acc_y,
                              imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
+                } else if (show_snsr_readings && show_teleplot) {
+                    printf(">Ax: %d\n>Ay: %d\n>Az: %d\n>Gx: %d\n>Gy: %d\n>Gz: %d\n", imu_data.acc_x,
+                           imu_data.acc_y, imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
                 }
             }
         } else {
@@ -132,11 +137,14 @@ static void temp_task(void *pvParameters)
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 ble_sensor_payload.temp_raw = (uint16_t)(current_temp * 100);
                 xSemaphoreGive(sensor_data_mutex);
-                if (show_snsr_readings)
+                if (show_snsr_readings && !show_teleplot) {
                     ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
+                } else if (show_snsr_readings && show_teleplot) {
+                    printf(">Temp: %.2f\n", current_temp);
+                }
             }
+            vTaskDelay(pdMS_TO_TICKS(TEMP_SAMPLING_RATE_IN_MS));
         }
-        vTaskDelay(pdMS_TO_TICKS(TEMP_SAMPLING_RATE_IN_MS));
     }
 }
 
@@ -157,8 +165,11 @@ static void ppg_task(void *pvParameters)
                 // Add sample to ppg-sliding-window
                 add_sample(&ppg_sliding_window, current_ppg);
 
-                if (show_snsr_readings)
-                    ESP_LOGI(TAG, "Read PPG: %lu", current_ppg);
+                if (show_snsr_readings && !show_teleplot) {
+                    ESP_LOGI(TAG, ">Read PPG: %lu", current_ppg);
+                } else if (show_snsr_readings && show_teleplot) {
+                    printf(">PPG: %lu\n", current_ppg);
+                }
             }
 
         } else {
@@ -181,8 +192,11 @@ static void gsr_task(void *pvParameters)
             if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 ble_sensor_payload.gsr = current_gsr;
                 xSemaphoreGive(sensor_data_mutex);
-                if (show_snsr_readings)
+                if (show_snsr_readings && !show_teleplot) {
                     ESP_LOGI(TAG, "Read GSR: %u", current_gsr);
+                } else if (show_snsr_readings && show_teleplot) {
+                    printf(">GSR: %u\n", current_gsr);
+                }
             }
 
         } else {
@@ -254,7 +268,7 @@ static void print_buffer_status_task(void *pvParameters)
             ESP_LOGI(TAG, "Samples: %lu / %d", sensor_log.count, DATA_COLLECTION_SAMPLES_COUNT);
             ESP_LOGI(TAG, "Time Stored: %.2f minutes (%.1f seconds)", minutes_stored, seconds_stored);
             ESP_LOGI(TAG, "Fill Level: %.2f%%", fill_percentage);
-            ESP_LOGI(TAG, "Head Index: %lu | Tail Index: %lu", sensor_log.head, sensor_log.tail);
+            ESP_LOGI(TAG, "Head Index: %lu | >Tail Index: %lu", sensor_log.head, sensor_log.tail);
 
             if (sensor_log.count >= DATA_COLLECTION_SAMPLES_COUNT) {
                 ESP_LOGW(TAG, "Buffer is LOOPING (2h limit reached, overwriting oldest data)");
