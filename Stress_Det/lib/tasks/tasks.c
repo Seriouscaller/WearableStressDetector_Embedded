@@ -5,209 +5,138 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/ringbuf.h"
 #include "freertos/semphr.h"
 #include "gatt.h"
 #include "gsr.h"
 #include "i2c_common.h"
+#include "inference.h"
 #include "max30101.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
-#include "ppg_processing.h"
 #include "shared_variables.h"
+#include "signal_processing.h"
 #include "spi_common.h"
+#include "storage.h"
 #include "tmp117.h"
 #include "types.h"
 #include <stdio.h>
 #include <string.h>
 
-void create_tasks(i2c_master_dev_handle_t tmp_handle, i2c_master_dev_handle_t max_handle,
-                  i2c_master_dev_handle_t bmi_handle, spi_device_handle_t gsr_handle);
-static void imu_bmi260_task(void *pvParameters);
-static void temp_task(void *pvParameters);
-static void ppg_task(void *pvParameters);
-static void gsr_task(void *pvParameters);
-static void ble_update_task(void *pvParameters);
-static void sync_heartbeat_task(void *pvParameters);
-static void print_buffer_status_task(void *pvParameters);
-static void storage_task(void *pvParameters);
+void ble_update_task(void *pvParameters);
 
-static const char *TAG = "SENSOR_TASKS";
-extern bool show_snsr_readings;
-extern bool show_teleplot;
+static const char *TAG = "TASKS";
+extern bool show_telemetry;
 extern uint16_t sensor_chr_val_handle;
 extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
-extern QueueHandle_t storage_queue;
 extern uint16_t conn_handle;
-extern psram_ring_buffer_t sensor_log;
-extern TaskHandle_t xPpgProcessingTaskHandle;
-extern psram_ppg_ring_buffer_t ppg_sliding_window;
-extern uint32_t processing_buffer;
+extern bool enable_imu;
+extern bool enable_ppg;
+extern bool enable_gsr;
+extern bool enable_temp;
+extern raw_data_t raw_data;
+extern RingbufHandle_t raw_data_ringbuf;
+extern QueueHandle_t data_log_queue;
+QueueHandle_t ml_queue;
 
-void create_tasks(i2c_master_dev_handle_t tmp_handle, i2c_master_dev_handle_t max_handle,
-                  i2c_master_dev_handle_t bmi_handle, spi_device_handle_t gsr_handle)
+#define NEW_DATA_SIZE 100 // 1 second @ 100Hz
+#define WINDOW_SIZE 3000
+
+void producer_task(void *pvParameters)
 {
-    // Each task is pinned to core 1 to avoid conflicts with BLE stack on core 0.
-    // Task priorities are set based on sensor read frequency and importance.
+    sensor_handles_t *sensors = (sensor_handles_t *)pvParameters;
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(SAMPLING_RATE_IN_MS); // 100 Hz
+    static raw_data_t bundle[100];
+    int samples_collected = 0;
 
-    // High-speed IMU Task (100Hz)
-    xTaskCreatePinnedToCore(imu_bmi260_task, "imu_task", 4096, bmi_handle, 10, NULL, 1);
-    // Slow Temperature Task (1Hz)
-    xTaskCreatePinnedToCore(temp_task, "temp_task", 2048, tmp_handle, 2, NULL, 1);
-    // Heart Rate Task (50Hz)
-    xTaskCreatePinnedToCore(ppg_task, "ppg_task", 4096, max_handle, 9, NULL, 1);
-    // GSR Task (10Hz)
-    xTaskCreatePinnedToCore(gsr_task, "gsr_task", 4096, gsr_handle, 8, NULL, 1);
-    // Send struct via BLE (100 ms)
-    xTaskCreatePinnedToCore(ble_update_task, "ble_update_task", 4096, NULL, 4, NULL, 1);
-    // Sync task that takes consistent snapshots of BLE_payload and sends to storage queue
-    xTaskCreatePinnedToCore(sync_heartbeat_task, "sync_task", 4096, NULL, 5, NULL, 1);
-    // Storage task that receives snapshots from queue and writes to PSRAM ring buffer
-    xTaskCreatePinnedToCore(storage_task, "storage_task", 4096, NULL, 3, NULL, 1);
-    // Print status of buffer every 5 seconds
-    // xTaskCreatePinnedToCore(print_buffer_status_task, "prt_bufr_status_tsk", 4096, NULL, 1, NULL, 1);
-    // PPG Processing. Waiting for a notify from add_sample function
-    xTaskCreatePinnedToCore(ppg_processing_task, "PPG_proc", 4096, NULL, 5, &xPpgProcessingTaskHandle, 1);
-};
-
-void ppg_processing_task(void *pvParameters)
-{
     while (1) {
-        // Waits indefinetely for the sampling task to notify that new data is available
-        uint32_t thread_notification = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        raw_data_t current_sample = {0};
 
-        if (thread_notification > 0) {
-            if (get_ppg_snapshot(&ppg_sliding_window, &processing_buffer) == ESP_OK) {
-                ESP_LOGI(TAG, "Snapshot copied from PPG-buffer!");
-                // TODO: Run function to calculate HR, HRV - Patrik
-                debug_ppg_buffer_status(&ppg_sliding_window);
+        bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg) == ESP_OK);
+        bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
+
+        if (ppg_ok && gsr_ok) {
+            bundle[samples_collected++] = current_sample;
+        } else {
+            ESP_LOGW(TAG, "Skipped reading sensors!");
+        }
+
+        if (samples_collected >= 100) {
+            if (xRingbufferSend(raw_data_ringbuf, bundle, sizeof(bundle), 0) == pdTRUE) {
+                samples_collected = 0;
             } else {
-                ESP_LOGE(TAG, "Failed to copy snapshot of PPG-buffer!");
+                ESP_LOGE(TAG, "Ringbuffer full!");
+                samples_collected = 0;
+            }
+        }
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
+void feature_extraction_task(void *pvParameters)
+{
+    raw_data_t *history = (raw_data_t *)heap_caps_malloc(WINDOW_SIZE * sizeof(raw_data_t), MALLOC_CAP_SPIRAM);
+
+    if (history == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate history buffer");
+        vTaskDelete(NULL);
+        return;
+    }
+    memset(history, 0, WINDOW_SIZE * sizeof(raw_data_t));
+
+    while (1) {
+        size_t item_size;
+
+        // Wait here until 1 bundle of samples (100 raw_data_t) has arrived
+        raw_data_t *new_samples =
+            (raw_data_t *)xRingbufferReceive(raw_data_ringbuf, &item_size, pdMS_TO_TICKS(1500));
+
+        if (new_samples != NULL) {
+            // Shift the 29 seconds of "old" data to the front
+            // Moving (3000 - 100) elements * size of each element
+            memmove(history, &history[NEW_DATA_SIZE], (WINDOW_SIZE - NEW_DATA_SIZE) * sizeof(raw_data_t));
+
+            // Copy the 1 second of "new" data to the very end
+            memcpy(&history[WINDOW_SIZE - NEW_DATA_SIZE], new_samples, NEW_DATA_SIZE * sizeof(raw_data_t));
+
+            // Return the memory to the Ring Buffer immediately
+            vRingbufferReturnItem(raw_data_ringbuf, (void *)new_samples);
+
+            // Running patriks feature extraction functions in here.
+            // Along with normalization into floats
+            som_input_t features = calculate_features(history, WINDOW_SIZE);
+
+            uint8_t result = som_model_predict(&features);
+
+            complete_log_t *final_log = malloc(sizeof(complete_log_t));
+            if (final_log) {
+                memcpy(final_log->raw_samples, new_samples, 100 * sizeof(raw_data_t));
+                final_log->features = features;
+                final_log->stress_class = result;
+                final_log->timestamp = xTaskGetTickCount();
+
+                xQueueSend(data_log_queue, &final_log, 0);
             }
         }
     }
 }
 
-// Sampling of IMU sensor every 10 ms (100 Hz).
-// Adds read data to shared ble_sensor_payload struct
-static void imu_bmi260_task(void *pvParameters)
+void logging_task(void *pvParameters)
 {
-    i2c_master_dev_handle_t bmi_handle = (i2c_master_dev_handle_t)pvParameters;
-    bmi_data_t imu_data = {0};
-
+    complete_log_t *received_log;
     while (1) {
-        if (bmi260_read(bmi_handle, &imu_data) == ESP_OK) {
-
-            // Update shared ble_sensor_payload with new IMU data. Mutex ensures that
-            // only one task can access ble_sensor_payload at a time, preventing data corruption.
-            if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                ble_sensor_payload.acc_x = imu_data.acc_x;
-                ble_sensor_payload.acc_y = imu_data.acc_y;
-                ble_sensor_payload.acc_z = imu_data.acc_z;
-                ble_sensor_payload.gyr_x = imu_data.gyr_x;
-                ble_sensor_payload.gyr_y = imu_data.gyr_y;
-                ble_sensor_payload.gyr_z = imu_data.gyr_z;
-
-                xSemaphoreGive(sensor_data_mutex);
-                if (show_teleplot) {
-                    printf(">Ax: %d\n>Ay: %d\n>Az: %d\n>Gx: %d\n>Gy: %d\n>Gz: %d\n", imu_data.acc_x,
-                           imu_data.acc_y, imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
-                } else if (!show_teleplot) {
-                    ESP_LOGI(TAG, "Ax: %d Ay: %d Az: %d Gx: %d Gy: %d Gz: %d", imu_data.acc_x, imu_data.acc_y,
-                             imu_data.acc_z, imu_data.gyr_x, imu_data.gyr_y, imu_data.gyr_z);
-                }
-            }
-        } else {
-            ESP_LOGW(TAG, "Failed to read BMI260 sensor.");
+        if (xQueueReceive(data_log_queue, &received_log, portMAX_DELAY) == pdTRUE) {
+            ESP_LOGI(TAG, "%lu, %f, %f, %u", received_log->timestamp, received_log->features.hrv_rmssd,
+                     received_log->features.tonic, received_log->stress_class);
+            free(received_log);
         }
-        vTaskDelay(pdMS_TO_TICKS(IMU_SAMPLING_RATE_IN_MS));
-    }
-}
-
-// Sampling of temperature sensor every 1000 ms (1 Hz).
-// Adds read data to shared ble_sensor_payload struct
-static void temp_task(void *pvParameters)
-{
-    i2c_master_dev_handle_t tmp_handle = (i2c_master_dev_handle_t)pvParameters;
-    float current_temp = 0.0f;
-
-    while (1) {
-        if (tmp117_read_temp(tmp_handle, &current_temp) == ESP_OK) {
-
-            if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                ble_sensor_payload.temp_raw = (uint16_t)(current_temp * 100);
-                xSemaphoreGive(sensor_data_mutex);
-                if (show_teleplot) {
-                    printf(">Temp: %.2f\n", current_temp);
-                } else if (!show_teleplot) {
-                    ESP_LOGI(TAG, "Read temp: %.2f", current_temp);
-                }
-            }
-            vTaskDelay(pdMS_TO_TICKS(TEMP_SAMPLING_RATE_IN_MS));
-        }
-    }
-}
-
-// Sampling of PPG (blood) sensor every 20 ms (50 Hz).
-// Adds read data to shared ble_sensor_payload struct
-static void ppg_task(void *pvParameters)
-{
-    i2c_master_dev_handle_t max_handle = (i2c_master_dev_handle_t)pvParameters;
-    uint32_t current_ppg = 0;
-
-    while (1) {
-        if (max30101_read_fifo(max_handle, &current_ppg) == ESP_OK) {
-
-            if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                ble_sensor_payload.ppg_green = current_ppg;
-                xSemaphoreGive(sensor_data_mutex);
-
-                // Add sample to ppg-sliding-window
-                add_sample(&ppg_sliding_window, current_ppg);
-
-                if (show_teleplot) {
-                    printf(">PPG: %lu\n", current_ppg);
-                } else if (!show_teleplot) {
-                    ESP_LOGI(TAG, ">Read PPG: %lu", current_ppg);
-                }
-            }
-
-        } else {
-            ESP_LOGW(TAG, "Failed to read MAX30101 sensor.");
-        }
-        vTaskDelay(pdMS_TO_TICKS(PPG_SAMPLING_RATE_IN_MS));
-    }
-}
-
-// Sampling of GSR (sweat) sensor every 100 ms (10 Hz).
-// Adds read data to shared ble_sensor_payload struct
-static void gsr_task(void *pvParameters)
-{
-    spi_device_handle_t gsr_handle = (spi_device_handle_t)pvParameters;
-    uint16_t current_gsr = 0;
-
-    while (1) {
-        if (gsr_sensor_read_raw(gsr_handle, &current_gsr) == ESP_OK) {
-
-            if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                ble_sensor_payload.gsr = current_gsr;
-                xSemaphoreGive(sensor_data_mutex);
-                if (show_teleplot) {
-                    printf(">GSR: %u\n", current_gsr);
-                } else if (!show_teleplot) {
-                    ESP_LOGI(TAG, "Read GSR: %u", current_gsr);
-                }
-            }
-
-        } else {
-            ESP_LOGW(TAG, "Failed to read GSR sensor.");
-        }
-        vTaskDelay(pdMS_TO_TICKS(GSR_SAMPLING_RATE_IN_MS));
     }
 }
 
 // Update BLE message buffer every 500 ms, and notify connected phone.
-static void ble_update_task(void *pvParameters)
+void ble_update_task(void *pvParameters)
 {
     while (1) {
         // Only send if a phone is connected
@@ -226,93 +155,5 @@ static void ble_update_task(void *pvParameters)
             }
         }
         vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
-    }
-}
-
-// Sync heartbeat task that runs according to SYNC_RATE to take a consistent snapshot of the
-// current sensor data and send it to the storage task via a queue. This ensures that the data
-// stored in flash is always consistent across all sensors, even if they are updated at different
-// rates.
-static void sync_heartbeat_task(void *pvParameters)
-{
-    sensor_data_t snapshot;
-
-    while (1) {
-        // Take a snapshot of the CURRENT state of all sensors
-        if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            memcpy(&snapshot, &ble_sensor_payload, sizeof(sensor_data_t));
-            xSemaphoreGive(sensor_data_mutex);
-
-            // Send this consistent snapshot to the storage task
-            // If the queue is full, we drop the frame to keep the system real-time
-            xQueueSend(storage_queue, &snapshot, 0);
-        }
-
-        // Logging rate
-        vTaskDelay(pdMS_TO_TICKS(SNAPSHOT_SYNC_RATE));
-    }
-}
-
-// Task that gives status updates about PSRAM. How much of it is filled up, and how much remains.
-static void print_buffer_status_task(void *pvParameters)
-{
-
-    while (1) {
-        if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(10)) == pdTRUE) {
-
-            float seconds_stored = sensor_log.count * (SNAPSHOT_SYNC_RATE / 1000.0f);
-            float minutes_stored = seconds_stored / 60.0f;
-            float fill_percentage = ((float)sensor_log.count / DATA_COLLECTION_SAMPLES_COUNT) * 100.0f;
-
-            ESP_LOGI(TAG, "--- PSRAM Buffer Status ---");
-            ESP_LOGI(TAG, "Samples: %lu / %d", sensor_log.count, DATA_COLLECTION_SAMPLES_COUNT);
-            ESP_LOGI(TAG, "Time Stored: %.2f minutes (%.1f seconds)", minutes_stored, seconds_stored);
-            ESP_LOGI(TAG, "Fill Level: %.2f%%", fill_percentage);
-            ESP_LOGI(TAG, "Head Index: %lu | >Tail Index: %lu", sensor_log.head, sensor_log.tail);
-
-            if (sensor_log.count >= DATA_COLLECTION_SAMPLES_COUNT) {
-                ESP_LOGW(TAG, "Buffer is LOOPING (2h limit reached, overwriting oldest data)");
-            }
-
-            xSemaphoreGive(sensor_log.lock);
-        } else {
-            ESP_LOGE(TAG, "Could not take buffer lock to print status");
-        }
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Print status every 5 seconds
-    }
-}
-
-// Stores data in the ring buffer. Manage the head and tail pointers. When buffer is full, the head
-// will wrap around and start overwriting the oldest data. Currently the storage holds 2h of
-// sensordata.
-static void storage_task(void *pvParameters)
-{
-    sensor_data_t received_data;
-
-    while (1) {
-        // Block until the sync_heartbeat_task sends a new snapshot
-        if (xQueueReceive(storage_queue, &received_data, portMAX_DELAY) == pdPASS) {
-
-            // Lock the buffer to prevent a "Read" task from accessing mid-update
-            if (xSemaphoreTake(sensor_log.lock, pdMS_TO_TICKS(5)) == pdTRUE) {
-
-                // Insert data at the current Head
-                sensor_log.data[sensor_log.head] = received_data;
-
-                // Advance the Head (with wrap-around)
-                sensor_log.head = (sensor_log.head + 1) % DATA_COLLECTION_SAMPLES_COUNT;
-
-                // Manage the Tail and Count
-                if (sensor_log.count < DATA_COLLECTION_SAMPLES_COUNT) {
-                    sensor_log.count++;
-                } else {
-                    // Buffer is full; the Tail must move to stay ahead of the Head
-                    // This means we are now overwriting the oldest data
-                    sensor_log.tail = (sensor_log.tail + 1) % DATA_COLLECTION_SAMPLES_COUNT;
-                }
-
-                xSemaphoreGive(sensor_log.lock);
-            }
-        }
     }
 }

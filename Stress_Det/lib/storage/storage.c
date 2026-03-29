@@ -5,6 +5,7 @@
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
 #include "esp_log.h"
+#include "freertos/ringbuf.h"
 #include "gsr.h"
 #include "i2c_common.h"
 #include "max30101.h"
@@ -18,8 +19,22 @@ extern sensor_data_t ble_sensor_payload;
 extern SemaphoreHandle_t sensor_data_mutex;
 extern QueueHandle_t storage_queue;
 extern psram_ring_buffer_t sensor_log;
+extern RingbufHandle_t raw_data_ringbuf;
 
 static const char *TAG = "STORAGE";
+
+
+void init_raw_data_ring_buffer()
+{
+    // MALLOC_CAP_SPIRAM forces the allocation into the S3's 8MB PSRAM
+    raw_data_ringbuf = xRingbufferCreateWithCaps(RING_BUF_SIZE, RINGBUF_TYPE_NOSPLIT, MALLOC_CAP_SPIRAM);
+
+    if (raw_data_ringbuf == NULL) {
+        ESP_LOGE("INIT", "Failed to create Ring Buffer in PSRAM!");
+    } else {
+        ESP_LOGI("INIT", "Ring Buffer created: %d bytes in PSRAM", RING_BUF_SIZE);
+    }
+}
 
 // Initializes a PSRAM ringbuffer
 esp_err_t init_psram_buffer(psram_ring_buffer_t *ring_buffer, uint32_t samples_count)
