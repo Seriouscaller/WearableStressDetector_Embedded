@@ -5,8 +5,8 @@
 #define SOM_INPUT_LEN 6
 
 // HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
-// RMSSD - Visar HR varierar på kort sikt.
-// SDNN - Hur avstånd har förändrats över längre tid.
+// RMSSD - Visar IBI varierar på kort sikt.
+// SDNN - Hur IBI har förändrats över längre tid.
 // HRV är skapad genom kombination av dessa två
 
 static const float som_weights[] = {

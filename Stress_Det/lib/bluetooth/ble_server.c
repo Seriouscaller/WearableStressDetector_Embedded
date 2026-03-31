@@ -8,27 +8,43 @@
 #include "nvs_flash.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "shared_variables.h"
 #include "types.h"
 
 static const char *TAG = "BLE";
 static uint8_t ble_addr_type;
-extern uint16_t conn_handle;
-extern sensor_data_t ble_sensor_payload;
-extern SemaphoreHandle_t sensor_data_mutex;
+extern uint16_t ble_conn_handle;
+extern SemaphoreHandle_t ble_payload_mutex;
+extern ble_payload_a_t ble_payload_a;
+extern ble_payload_b_t ble_payload_b;
+extern ble_payload_b_t ble_payload_c;
+extern uint16_t ble_sensor_chr_val_handle;
+extern uint16_t ble_sensor_chr_a_val_handle;
+extern uint16_t ble_sensor_chr_b_val_handle;
+extern uint16_t ble_sensor_chr_c_val_handle;
+extern const struct ble_gatt_svc_def gatt_svcs[];
 
-void ble_app_advertise(void);
+static void ble_app_advertise(void);
 
-// Callback when phone reads the characteristic
-// Checks if bluetooth data struct is not being written to, if so, adds runtime to struct,
-// packs data from ble_sensor_payload into outgoing ble-messagebuffer.
+// Callback when phone requests the characteristic value
 int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    if (xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        ble_sensor_payload.uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
-        os_mbuf_append(ctxt->om, &ble_sensor_payload, sizeof(ble_sensor_payload));
-        xSemaphoreGive(sensor_data_mutex);
+    // If the PC manually asks for data, give it the latest split part
+    if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (attr_h == ble_sensor_chr_a_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payload_a, sizeof(ble_payload_a));
+        } else if (attr_h == ble_sensor_chr_b_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payload_b, sizeof(ble_payload_b));
+        } else if (attr_h == ble_sensor_chr_c_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payload_c, sizeof(ble_payload_c));
+        }
+
+        xSemaphoreGive(ble_payload_mutex);
+        return 0;
+    } else {
+        ESP_LOGW(TAG, "Sensor_read_cb - Failed to take semaphore! ");
     }
-    return 0;
+    return BLE_ATT_ERR_UNLIKELY;
 }
 
 // GAP Event Handler (nimBLE)
@@ -41,11 +57,11 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         ESP_LOGI(TAG, "Connected! Status: %d", event->connect.status);
-        conn_handle = event->connect.conn_handle;
+        ble_conn_handle = event->connect.conn_handle;
         break;
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "Disconnected. Restarting Advertising...");
-        conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        ble_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         ble_app_advertise();
         break;
     case BLE_GAP_EVENT_MTU:
@@ -57,7 +73,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
 
 // Starts the BLE advertisement of device. Connectable, discoverable.
 // Device shows as "XIAO_S3" in mobile nRF-application
-void ble_app_advertise(void)
+static void ble_app_advertise(void)
 {
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
@@ -84,7 +100,7 @@ void ble_app_advertise(void)
 // When the internal BLE layers have synced up. Advertisement starts.
 // Makes sure host and controller are in sync, and ready to handle BLE
 // commands.
-void ble_on_sync(void)
+static void ble_on_sync(void)
 {
     // No preference between public and random ble address.
     ble_hs_id_infer_auto(0, &ble_addr_type);
@@ -93,7 +109,7 @@ void ble_on_sync(void)
 }
 
 // FreeRTOS task to let BLE run as a asynchronous task.
-void ble_host_task(void *param)
+static void ble_host_task(void *param)
 {
     // Blocking task to keep BLE running
     nimble_port_run();
@@ -111,6 +127,8 @@ void init_ble_server(void)
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
         nvs_flash_init();
+        ESP_LOGE(TAG, "Failed to init NVS!");
+        return;
     }
 
     // NimBLE initialization functions

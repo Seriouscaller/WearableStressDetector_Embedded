@@ -29,8 +29,10 @@ static const char *TAG = "MAX30101";
 #define MAX30101_SLOT_1_GREEN 0x03
 #define MAX30101_SLOT_3_4_DIS 0x00
 #define MAX30101_LED_PA_25_4MA 0x7F
+#define MAX30101_FIFO_AVG_1 0x00
 #define MAX30101_FIFO_AVG_4 0x40
 #define MAX30101_SAMPLE_RATE_100_ADC_18B 0x43
+#define MAX30101_SAMPLE_RATE_200_ADC_18B 0x0B
 #define MAX30101_MODE_MULTI_LED 0x07
 #define MAX30101_FIFO_DATA_MASK 0x3FFFF
 
@@ -77,12 +79,12 @@ esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handl
     write_reg(*max_handle, MAX30101_REG_LED3_PA, MAX30101_LED_PA_25_4MA);
     write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x00);
 
-    // 4 sample averging
-    write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, MAX30101_FIFO_AVG_4);
+    // 1 sample averging
+    write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, MAX30101_FIFO_AVG_1);
 
-    // Sampling rate: 100Hz
+    // Sampling rate: 200Hz
     // ADC Resolution: 18-bit
-    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, MAX30101_SAMPLE_RATE_100_ADC_18B);
+    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, MAX30101_SAMPLE_RATE_200_ADC_18B);
 
     // Enable Multi-LED Mode (0x07)
     // Is needed to enable green LED

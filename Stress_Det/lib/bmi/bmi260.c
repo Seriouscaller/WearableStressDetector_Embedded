@@ -63,7 +63,7 @@ esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     uint8_t chip_id = 0;
     uint8_t reg = BMI260_REG_CHIP_ID;
     esp_err_t ret = i2c_master_transmit_receive(*dev_handle, &reg, 1, &chip_id, 1, -1);
-    // Verify read success and correct chip ID (Expecting 0x27 for BMI260)
+    // Verify read success and correct chip ID (Expecting BMI260_CHIP_ID_VAL (0x27) for BMI260)
     if (ret != ESP_OK || chip_id != BMI260_CHIP_ID_VAL) {
         ESP_LOGE(TAG, "Read failed or Wrong ID. Got: 0x%02X, Err: %d", chip_id, ret);
         return ESP_FAIL;

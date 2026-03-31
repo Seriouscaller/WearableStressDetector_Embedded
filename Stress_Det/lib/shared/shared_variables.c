@@ -4,21 +4,23 @@
 #include "types.h"
 #include <stdio.h>
 
+// FreeRTOS
+TaskHandle_t xFeatureExtractionTaskHandle = NULL;
+
 // Data Collection
-QueueHandle_t storage_queue;
-psram_ring_buffer_t sensor_log;
-SemaphoreHandle_t sensor_data_mutex;
-SemaphoreHandle_t raw_data_mutex;
-raw_data_t raw_data;
-QueueHandle_t data_log_queue;
-RingbufHandle_t raw_data_ringbuf;
+raw_data_t raw_data = {0};
+SemaphoreHandle_t ble_payload_mutex = NULL;
+QueueHandle_t data_log_queue = NULL;
+RingbufHandle_t raw_data_ringbuf = NULL;
 
 // BLE
-sensor_data_t ble_sensor_payload;
-uint16_t sensor_chr_val_handle;
-uint16_t conn_handle;
+ble_payload_a_t ble_payload_a = {0};
+ble_payload_b_t ble_payload_b = {0};
+ble_payload_c_t ble_payload_c = {0};
+uint16_t ble_sensor_chr_a_val_handle;
+uint16_t ble_sensor_chr_b_val_handle;
+uint16_t ble_sensor_chr_c_val_handle;
+uint16_t ble_conn_handle;
 
 // PPG/GSR Processing
-psram_window_ring_buffer_t sliding_window;
-TaskHandle_t xFeatureExtractionTaskHandle = NULL;
-raw_data_t processing_buffer[SNAPSHOT_LEN]; // 30 seconds of data approx 12 KB in RAM
+raw_data_t processing_buffer[WINDOW_SIZE]; // 30 seconds of data approx 12 KB in RAM

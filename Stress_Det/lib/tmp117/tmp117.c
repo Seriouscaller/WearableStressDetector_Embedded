@@ -1,6 +1,7 @@
 // TMP117 Temperature sensor
 
 #include "tmp117.h"
+#include "board_config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,7 +23,7 @@ esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = TMP117_ADDR,
-        .scl_speed_hz = 400000,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
     };
 
     // Add sensor to i2c-bus

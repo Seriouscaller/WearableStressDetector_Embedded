@@ -20,40 +20,23 @@ I2C Devices:
 #define SPI_FREQ_HZ 1000000
 
 // Sensor timings
+#define PPG_AND_GSR_SAMPLING_RATE_IN_MS TWOHUNDRED_HZ_IN_MS
 #define IMU_SAMPLING_RATE_IN_MS ONEHUNDRED_HZ_IN_MS
-#define PPG_SAMPLING_RATE_IN_MS ONEHUNDRED_HZ_IN_MS
-#define SAMPLING_RATE_IN_MS ONEHUNDRED_HZ_IN_MS
-#define GSR_SAMPLING_RATE_IN_MS TEN_HZ_IN_MS
 #define TEMP_SAMPLING_RATE_IN_MS ONE_HZ_IN_MS
+#define TWOHUNDRED_HZ_IN_MS 5
 #define ONEHUNDRED_HZ_IN_MS 10
 #define FIFTY_HZ_IN_MS 20
 #define TEN_HZ_IN_MS 100
 #define ONE_HZ_IN_MS 1000
 
 // BLE update interval (how often we send data to the connected phone/PC)
-#define BLE_NOTIFY_INTERVAL_MS 500
+#define BLE_NOTIFY_INTERVAL_MS 1000
 
-// Time before snapshot of raw_data is taken and sent to queue
-#define SNAPSHOT_SYNC_RATE 10
-
-// Sliding window holds 90 seconds of ppg data
-// Circular buffer
-#define SLIDING_WINDOW_PPG_SAMPLES_COUNT 20000
+// Ring buffer which keeps PPG and EDA values for future feature extraction
+#define RING_BUF_SIZE (WINDOW_SIZE * sizeof(raw_data_t) + 1024) // +1024 for overhead
 
 // PPG Processing
-#define PPG_SAMPLE_RATE 100
-#define SNAPSHOT_LEN (30 * PPG_SAMPLE_RATE)  // 30s = 3000 samples
-#define RING_BUF_CAPACITY (SNAPSHOT_LEN * 2) // 60s = 6000 samples
+#define PPG_SAMPLE_RATE 200
+#define WINDOW_SIZE (30 * PPG_SAMPLE_RATE) // 30s = 3000 samples
 
-#define DATA_COLLECTION_SAMPLES_COUNT 144000
-
-// (1Hz * 60s * 60m) = 3600
-// Size: 3600 samples * 12B (som_data_t) = 43 200B
-#define SOM_DATA_COLLECTION_SAMPLES_COUNT 3600
-
-// (100Hz * 10s) = 1000 Samples
-// Size: 1000 samples * 24B (full_data_t) = 24 000B
-#define FULL_DATA_COLLECTION_SAMPLES_COUNT 1000
-
-#define RING_BUF_SIZE (WINDOW_SIZE * sizeof(raw_data_t) + 1024) // +1024 for overhead
-#define WINDOW_SIZE 3000
+#define SAMPLES_PER_SECOND PPG_SAMPLE_RATE // 1 second @ 100Hz
