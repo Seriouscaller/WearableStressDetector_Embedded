@@ -4,6 +4,8 @@
 #include "driver/spi_master.h"
 #include "esp_log.h"
 
+static const char *TAG = "SPI";
+
 // Sets up master SPI-bus. Assigns pins.
 esp_err_t init_spi(void)
 {
@@ -14,6 +16,13 @@ esp_err_t init_spi(void)
                                .quadhd_io_num = -1,
                                .max_transfer_sz = 32};
 
+    // Initialize SPI master bus
     // Using the 3rd SPI-bus on the S3. Standard for peripherals
-    return spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize SPI bus. Err: %d", ret);
+        return ESP_FAIL;
+    }            
+    
+    return ret;
 };

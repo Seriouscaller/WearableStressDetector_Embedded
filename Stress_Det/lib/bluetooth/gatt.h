@@ -9,7 +9,6 @@
 #include "types.h"
 #include <stdio.h>
 
-extern const ble_uuid128_t sensor_svc_uuid;
-extern const ble_uuid128_t sensor_chr_uuid;
-
-extern const struct ble_gatt_svc_def gatt_svcs[];
+extern uint16_t ble_sensor_chr_a_val_handle;
+extern uint16_t ble_sensor_chr_b_val_handle;
+extern uint16_t ble_sensor_chr_c_val_handle;

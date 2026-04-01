@@ -11,7 +11,7 @@ static const char *TAG = "I2C";
 #define I2C_MASTER_GLITCH_FILTER_LEN 7
 
 // Sets up master i2c-bus. Assigns pins.
-void init_i2c(i2c_master_bus_handle_t *bus_handle)
+esp_err_t init_i2c(i2c_master_bus_handle_t *bus_handle)
 {
     i2c_master_bus_config_t bus_config = {
         .i2c_port = I2C_NUM_0,
@@ -22,7 +22,14 @@ void init_i2c(i2c_master_bus_handle_t *bus_handle)
         .flags.enable_internal_pullup = true,
     };
 
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, bus_handle));
+    // Initialize I2C master bus
+    esp_err_t ret = i2c_new_master_bus(&bus_config, bus_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize I2C bus. Err: %d", ret);
+        return ESP_FAIL;
+    }
+
+    return ret;
 };
 
 esp_err_t write_reg(i2c_master_dev_handle_t handle, uint8_t reg, uint8_t data)

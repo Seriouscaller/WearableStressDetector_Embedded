@@ -90,7 +90,7 @@ esp_err_t bmi160_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
 
 // Reads 12B total of IMU data from sensor. Converts from little-endian
 // to big endian for correct data representation.
-esp_err_t bmi160_read(i2c_master_dev_handle_t dev_handle, bmi160_data_t *data)
+esp_err_t bmi160_read(i2c_master_dev_handle_t dev_handle, bmi_data_t *data)
 {
     uint8_t reg = BMI160_REG_DATA;
     uint8_t buffer[12];

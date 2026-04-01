@@ -1,6 +1,3 @@
 #pragma once
 
-esp_err_t init_psram_buffer();
-void sync_heartbeat_task(void *pvParameters);
-void print_buffer_status_task(void *pvParameters);
-void storage_task(void *pvParameters);
+esp_err_t init_raw_data_ring_buffer(RingbufHandle_t *ring_buffer);
