@@ -15,7 +15,7 @@ I2C Devices:
 // SPI Master Definitions for GSR Sensor
 #define SPI_NUM_MISO 8 // XIAO D9
 #define SPI_NUM_CLK 7  // XIAO D8
-#define SPI_NUM_CS 2
+#define SPI_NUM_CS 3
 #define SPI_NUM_MOSI -1 // Not present on GSR Module
 #define SPI_FREQ_HZ 1000000
 
