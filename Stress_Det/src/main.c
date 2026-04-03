@@ -1,11 +1,7 @@
-#include "adc.h"
 #include "ble_server.h"
 #include "bmi260.h"
 #include "board_config.h"
 #include "driver/i2c_master.h"
-#include "esp_adc/adc_cali.h"
-#include "esp_adc/adc_cali_scheme.h"
-#include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "freertos/ringbuf.h"
 #include "gsr.h"
@@ -84,15 +80,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(feature_extraction_task, "feats", 4096, NULL, 9, NULL, 1);
     xTaskCreatePinnedToCore(logging_task, "log", 8192, NULL, 6, NULL, 1);
 
-    adc_oneshot_unit_handle_t adc1_handle = NULL;
-    adc_cali_handle_t adc1_cali_chan0_handle = NULL;
-    ESP_ERROR_CHECK(init_adc(&adc1_handle, &adc1_cali_chan0_handle));
-    static int adc_raw;
-    static int voltage;
+    xTaskCreatePinnedToCore(battery_task, "battery", 4096, NULL, 1, NULL, 1);
 
-    while (1) {
-        esp_err_t ret = read_battery_voltage(&adc1_handle, &adc1_cali_chan0_handle, &adc_raw, &voltage);
-        vTaskDelay(pdTICKS_TO_MS(500));
-    }
     return;
 }

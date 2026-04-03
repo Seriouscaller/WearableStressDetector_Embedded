@@ -12,10 +12,12 @@
 #include <string.h>
 
 const static char *TAG = "ADC";
+extern bool show_battery_log;
 
 static esp_err_t adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten,
                                       adc_cali_handle_t *adc_cali_handle);
 
+#define ADC_SAMPLES 10
 #define MCU_MINIMUM_OP_VOLTAGE 3.4f
 #define BATTERY_MAX_VOLTAGE 4.2f
 #define V_DIVIDER_R1 33000.0f
@@ -67,21 +69,41 @@ static esp_err_t adc_calibration_init(adc_unit_t unit, adc_channel_t channel, ad
 }
 
 esp_err_t read_battery_voltage(adc_oneshot_unit_handle_t *adc1_handle,
-                               adc_cali_handle_t *adc1_cali_chan0_handle, int *adc_raw, int *voltage)
+                               adc_cali_handle_t *adc1_cali_chan0_handle, int *adc_raw, int *voltage_mV)
 {
-    if (adc_oneshot_read(*adc1_handle, ADC_CHANNEL_0, adc_raw) == ESP_OK) {
-        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(*adc1_cali_chan0_handle, *adc_raw, voltage));
-
-        float pin_v = *voltage / 1000.0f;
-        float battery_v = pin_v * V_DIVIDER_RATIO;
-        uint8_t battery_energy_percentage = (uint8_t)((battery_v / BATTERY_MAX_VOLTAGE) * 100);
-        if (battery_energy_percentage > 100)
-            battery_energy_percentage = 100;
-
-        ESP_LOGI(TAG, "Raw ADC: %d Pin: %.2fV Battery: %.2fV Charge: %u%%", *adc_raw, pin_v, battery_v,
-                 battery_energy_percentage);
+    int voltage_sum = 0;
+    int num_of_samples = 0;
+    // Taking multiple samples and averging to reduce noise in ADC reading
+    for (int i = 0; i < ADC_SAMPLES; i++) {
+        if (adc_oneshot_read(*adc1_handle, ADC_CHANNEL_0, adc_raw) == ESP_OK) {
+            if (adc_cali_raw_to_voltage(*adc1_cali_chan0_handle, *adc_raw, voltage_mV) == ESP_OK) {
+                voltage_sum += *voltage_mV;
+                num_of_samples++;
+            }
+        }
+    }
+    if (num_of_samples > 0) {
+        *voltage_mV = voltage_sum / num_of_samples;
         return ESP_OK;
     }
-    ESP_LOGE(TAG, "ADC read failed");
     return ESP_FAIL;
+}
+
+void log_battery_voltage(int *adc_raw, int *voltage_mV)
+{
+    float pin_v = *voltage_mV / 1000.0f;
+    float battery_v = pin_v * V_DIVIDER_RATIO;
+
+    float battery_percentage =
+        ((battery_v - MCU_MINIMUM_OP_VOLTAGE) / (BATTERY_MAX_VOLTAGE - MCU_MINIMUM_OP_VOLTAGE) * 100);
+
+    if (battery_percentage < 0)
+        battery_percentage = 0;
+    if (battery_percentage > 100)
+        battery_percentage = 100;
+
+    if (show_battery_log) {
+        ESP_LOGI(TAG, "Raw: %d Pin: %.2fV Battery: %.2fV Charge: %.2f%%", *adc_raw, pin_v, battery_v,
+                 battery_percentage);
+    }
 }
