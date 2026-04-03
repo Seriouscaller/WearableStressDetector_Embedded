@@ -12,6 +12,7 @@
 static const char *TAG = "TASKS";
 extern SemaphoreHandle_t ble_payload_mutex;
 extern uint16_t ble_conn_handle;
+extern bool is_sampling_active;
 extern bool show_telemetry;
 extern bool show_logged_values;
 extern bool enable_imu;
@@ -33,30 +34,33 @@ void sensor_sampling_task(void *pvParameters)
     int samples_collected = 0;
 
     while (1) {
-        raw_data_t current_sample = {0};
+        if (is_sampling_active) {
 
-        bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg) == ESP_OK);
-        bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
+            raw_data_t current_sample = {0};
 
-        // Adds raw_data_t to static array
-        if (ppg_ok && gsr_ok) {
-            bundle[samples_collected++] = current_sample;
-        } else {
-            ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
-        }
+            bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg) == ESP_OK);
+            bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
 
-        if (show_telemetry) {
-            printf(">ppg: %lu\n", current_sample.ppg);
-            printf(">gsr: %u\n", current_sample.gsr);
-        }
-
-        // Once 200 samples (1 sec) is accumulated, bundle is sent off to Ringbuffer
-        if (samples_collected >= PPG_SAMPLE_RATE) {
-            if (xRingbufferSend(raw_data_ringbuf, bundle, sizeof(bundle), 0) == pdTRUE) {
-                samples_collected = 0;
+            // Adds raw_data_t to static array
+            if (ppg_ok && gsr_ok) {
+                bundle[samples_collected++] = current_sample;
             } else {
-                ESP_LOGE(TAG, "sensor_sampling_task - Ringbuffer full!");
-                samples_collected = 0;
+                ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
+            }
+
+            if (show_telemetry) {
+                printf(">ppg: %lu\n", current_sample.ppg);
+                printf(">gsr: %u\n", current_sample.gsr);
+            }
+
+            // Once 200 samples (1 sec) is accumulated, bundle is sent off to Ringbuffer
+            if (samples_collected >= PPG_SAMPLE_RATE) {
+                if (xRingbufferSend(raw_data_ringbuf, bundle, sizeof(bundle), 0) == pdTRUE) {
+                    samples_collected = 0;
+                } else {
+                    ESP_LOGE(TAG, "sensor_sampling_task - Ringbuffer full!");
+                    samples_collected = 0;
+                }
             }
         }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);

@@ -1,15 +1,16 @@
 #include "ble_commands.h"
 #include "gatt.h"
+#include "shared_variables.h"
 #include <stdio.h>
 
 #define BLE_CMD_START_SAMPLING 0x01
 #define BLE_CMD_STOP_SAMPLING 0x02
-#define BLE_CMD_GET_BATTERY 0x03
-#define BLE_CMD_REBOOT 0x04
+#define BLE_CMD_REBOOT 0x03
 
 static const char *TAG = "BLE_cmd";
 extern uint16_t ble_command_chr_val_handle;
 extern uint8_t ble_received_command;
+extern volatile bool is_sampling_active;
 
 // Callback when device receives command over ble
 int control_write_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg)
@@ -36,5 +37,17 @@ int control_write_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ct
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
     ESP_LOGI(TAG, "Received: Dec %u Hex 0x%02X", ble_received_command, ble_received_command);
+
+    if (ble_received_command == BLE_CMD_START_SAMPLING) {
+        ESP_LOGE(TAG, "Sampling started!");
+        is_sampling_active = true;
+    } else if (ble_received_command == BLE_CMD_STOP_SAMPLING) {
+        ESP_LOGE(TAG, "Sampling halted!");
+        is_sampling_active = false;
+    } else if (ble_received_command == BLE_CMD_REBOOT) {
+        ESP_LOGE(TAG, "Device rebooting!");
+        esp_restart();
+    }
+
     return 0;
 }
