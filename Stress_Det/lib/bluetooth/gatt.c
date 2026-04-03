@@ -1,4 +1,5 @@
 #include "gatt.h"
+#include "ble_commands.h"
 #include "ble_server.h"
 
 const ble_uuid128_t ble_sensor_svc_uuid;
@@ -28,6 +29,11 @@ const ble_uuid128_t ble_sensor_chr_b_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0
 const ble_uuid128_t ble_sensor_chr_c_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0xcd, 0xab,
                                                              0x34, 0x12, 0xcd, 0xab, 0x05, 0xff, 0x00, 0x00);
 
+// Characteristic Command
+// 00 00 ff 06 ab cd 12 34 cd cd 12 34 56 78 9a bc
+const ble_uuid128_t ble_command_chr_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0xcd, 0xab,
+                                                            0x34, 0x12, 0xcd, 0xab, 0x06, 0xff, 0x00, 0x00);
+
 // GATT Table Definition
 // Creates a custom service ("folders"), with a custom sensor-
 // characteristic ("files"). Assigns which callback-function to run
@@ -54,5 +60,9 @@ const struct ble_gatt_svc_def gatt_svcs[] = {
                                       .access_cb = sensor_read_cb,
                                       .flags = BLE_GATT_CHR_F_NOTIFY,
                                       .val_handle = &ble_sensor_chr_c_val_handle},
+                                     {.uuid = &ble_command_chr_uuid.u, // UUID ...06ff...   Commands
+                                      .access_cb = control_write_cb,
+                                      .flags = BLE_GATT_CHR_F_WRITE,
+                                      .val_handle = &ble_command_chr_val_handle},
                                      {0}}},
     {0}};

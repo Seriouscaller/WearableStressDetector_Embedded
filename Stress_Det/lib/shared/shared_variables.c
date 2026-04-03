@@ -20,7 +20,9 @@ ble_payload_c_t ble_payload_c = {0};
 uint16_t ble_sensor_chr_a_val_handle;
 uint16_t ble_sensor_chr_b_val_handle;
 uint16_t ble_sensor_chr_c_val_handle;
+uint16_t ble_command_chr_val_handle;
 uint16_t ble_conn_handle;
+uint8_t ble_received_command;
 
 // PPG/GSR Processing
 raw_data_t processing_buffer[WINDOW_SIZE]; // 30 seconds of data approx 12 KB in RAM
