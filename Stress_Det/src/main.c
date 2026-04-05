@@ -25,6 +25,8 @@ static const char *TAG = "MAIN";
 extern QueueHandle_t data_log_queue;
 extern RingbufHandle_t raw_data_ringbuf;
 extern SemaphoreHandle_t ble_payload_mutex;
+extern SemaphoreHandle_t experiment_phase_mutex;
+
 extern bool enable_ppg;
 extern bool enable_gsr;
 extern bool enable_imu;
@@ -36,13 +38,19 @@ void app_main(void)
 
     ble_payload_mutex = xSemaphoreCreateMutex();
     if (ble_payload_mutex == NULL) {
-        ESP_LOGE(TAG, "Failed to create Mutex!");
+        ESP_LOGE(TAG, "ble_payload_mutex, failed to create Mutex!");
+        return;
+    }
+
+    experiment_phase_mutex = xSemaphoreCreateMutex();
+    if (experiment_phase_mutex == NULL) {
+        ESP_LOGE(TAG, "experiment_phase_mutex, failed to create Mutex!");
         return;
     }
 
     data_log_queue = xQueueCreate(5, sizeof(complete_log_t *));
     if (data_log_queue == NULL) {
-        ESP_LOGE(TAG, "Failed to create Queue!");
+        ESP_LOGE(TAG, "data_log_queue, failed to create Queue!");
         return;
     }
 

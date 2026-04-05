@@ -24,6 +24,8 @@ extern QueueHandle_t data_log_queue;
 extern ble_payload_a_t ble_payload_a;
 extern ble_payload_b_t ble_payload_b;
 extern ble_payload_c_t ble_payload_c;
+extern volatile uint8_t current_experiment_phase;
+extern SemaphoreHandle_t experiment_phase_mutex;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -112,6 +114,12 @@ void feature_extraction_task(void *pvParameters)
                 final_log->features = features;
                 final_log->stress_class = result;
                 final_log->timestamp = xTaskGetTickCount();
+                if (xSemaphoreTake(experiment_phase_mutex, pdMS_TO_TICKS(10))) {
+                    final_log->experiment_phase = current_experiment_phase;
+                    xSemaphoreGive(experiment_phase_mutex);
+                } else {
+                    ESP_LOGW(TAG, "feature_extraction_task - Failed to take semaphore. Exp. Phase not set!");
+                }
 
                 xQueueSend(data_log_queue, &final_log, 0);
             }
@@ -134,10 +142,10 @@ void logging_task(void *pvParameters)
     while (1) {
         if (xQueueReceive(data_log_queue, &received_log, portMAX_DELAY) == pdTRUE) {
             if (show_logged_values) {
-                ESP_LOGI(TAG, "%lu, %lu, %u, %f, %f, %u", received_log->timestamp,
+                ESP_LOGI(TAG, "t:%lu ppg:%lu gsr:%u rm:%f ton:%f cl:%u ph:%u", received_log->timestamp,
                          received_log->raw_samples[0].ppg, received_log->raw_samples[0].gsr,
                          received_log->features.hrv_rmssd, received_log->features.tonic,
-                         received_log->stress_class);
+                         received_log->stress_class, received_log->experiment_phase);
             }
 
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -161,6 +169,7 @@ void logging_task(void *pvParameters)
                 ble_payload_c.phasic = received_log->features.phasic;
                 ble_payload_c.scr = received_log->features.scr;
                 ble_payload_c.stress_class = received_log->stress_class;
+                ble_payload_c.experiment_phase = received_log->experiment_phase;
 
                 xSemaphoreGive(ble_payload_mutex);
             } else {

@@ -23,6 +23,7 @@ typedef struct __attribute__((packed)) {
     raw_data_t raw_samples[200];
     som_input_t features;
     uint8_t stress_class;
+    uint8_t experiment_phase; // (1 byte)
 } complete_log_t;
 
 typedef struct __attribute__((packed)) {
@@ -40,7 +41,8 @@ typedef struct __attribute__((packed)) {
     raw_data_t raw_samples[50];            // Last 50 samples (300 bytes)
     float rmssd, sdnn, tonic, phasic, scr; // (20 bytes)
     uint8_t stress_class;                  // (1 byte)
-} ble_payload_c_t;                         // Total: 325 bytes
+    uint8_t experiment_phase;              // (1 byte)
+} ble_payload_c_t;                         // Total: 326 bytes
 
 typedef struct {
     int16_t acc_x;
