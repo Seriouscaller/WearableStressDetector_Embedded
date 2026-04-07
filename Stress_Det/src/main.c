@@ -79,5 +79,8 @@ void app_main(void)
     xTaskCreatePinnedToCore(sensor_sampling_task, "sampl", 8192, &sensor_handles, 10, NULL, 1);
     xTaskCreatePinnedToCore(feature_extraction_task, "feats", 4096, NULL, 9, NULL, 1);
     xTaskCreatePinnedToCore(logging_task, "log", 8192, NULL, 6, NULL, 1);
+
+    xTaskCreatePinnedToCore(battery_task, "battery", 4096, NULL, 1, NULL, 1);
+
     return;
 }
