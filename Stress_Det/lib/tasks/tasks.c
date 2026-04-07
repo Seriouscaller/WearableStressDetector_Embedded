@@ -1,4 +1,8 @@
+#include "adc.h"
 #include "board_config.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "freertos/ringbuf.h"
 #include "gatt.h"
@@ -216,5 +220,24 @@ void ble_update_task(void *pvParameters)
             }
         }
         vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
+    }
+}
+
+void battery_task(void *pvParameters)
+{
+    adc_oneshot_unit_handle_t adc1_handle = NULL;
+    adc_cali_handle_t adc1_cali_chan0_handle = NULL;
+    ESP_ERROR_CHECK(init_adc(&adc1_handle, &adc1_cali_chan0_handle));
+    static int adc_raw;
+    static int voltage_mV;
+
+    while (1) {
+        esp_err_t ret = read_battery_voltage(&adc1_handle, &adc1_cali_chan0_handle, &adc_raw, &voltage_mV);
+        if (ret == ESP_OK) {
+            log_battery_voltage(&adc_raw, &voltage_mV);
+        } else {
+            ESP_LOGE(TAG, "Failed to read battery Voltage!");
+        }
+        vTaskDelay(pdTICKS_TO_MS(2000));
     }
 }

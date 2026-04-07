@@ -29,6 +29,8 @@ static const char *TAG = "BMI160";
 #define BMI160_ACC_CONF_100HZ 0x28
 #define BMI160_GYR_CONF_100HZ 0x28
 
+#define BMI_160_ACC_GYR_DATASIZE_B 12
+
 // Adds device to i2c.
 // Configures device.
 esp_err_t bmi160_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t *dev_handle)
@@ -93,7 +95,7 @@ esp_err_t bmi160_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
 esp_err_t bmi160_read(i2c_master_dev_handle_t dev_handle, bmi_data_t *data)
 {
     uint8_t reg = BMI160_REG_DATA;
-    uint8_t buffer[12];
+    uint8_t buffer[BMI_160_ACC_GYR_DATASIZE_B];
 
     // Receives 6B Acceleration & 6B Gyroscope-data from sensor. Stored in buffer.
     esp_err_t ret = i2c_master_transmit_receive(dev_handle, &reg, 1, buffer, 12, -1);
