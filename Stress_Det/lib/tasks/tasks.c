@@ -1,5 +1,6 @@
 #include "adc.h"
 #include "board_config.h"
+#include "eda_processing.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
@@ -9,6 +10,7 @@
 #include "gsr.h"
 #include "inference.h"
 #include "max30101.h"
+#include "ppg_processing.h"
 #include "shared_variables.h"
 #include "signal_processing.h"
 #include <stdio.h>
@@ -39,23 +41,29 @@ void sensor_sampling_task(void *pvParameters)
     static raw_data_t bundle[PPG_SAMPLE_RATE]; // Collects 200 ppg & gsr samples in array
     int samples_collected = 0;
 
+    ppg_processing_init();
+    eda_processing_init();
+
     while (1) {
         if (is_sampling_active) {
 
             raw_data_t current_sample = {0};
 
-            bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg) == ESP_OK);
+            bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
             bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
 
             // Adds raw_data_t to static array
             if (ppg_ok && gsr_ok) {
+                current_sample.ppg_filtered = ppg_process_sample(current_sample.ppg_raw);
                 bundle[samples_collected++] = current_sample;
             } else {
                 ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
             }
 
             if (show_telemetry) {
-                printf(">ppg: %lu\n", current_sample.ppg);
+
+                printf(">ppg raw: %lu\n", current_sample.ppg_raw);
+                printf(">ppg filt:%f\n", current_sample.ppg_filtered);
                 printf(">gsr: %u\n", current_sample.gsr);
             }
 
@@ -154,7 +162,7 @@ void logging_task(void *pvParameters)
         if (xQueueReceive(data_log_queue, &received_log, portMAX_DELAY) == pdTRUE) {
             if (show_logged_values) {
                 ESP_LOGI(TAG, "t:%lu ppg:%lu gsr:%u rm:%f ton:%f cl:%u ph:%u", received_log->timestamp,
-                         received_log->raw_samples[0].ppg, received_log->raw_samples[0].gsr,
+                         received_log->raw_samples[0].ppg_raw, received_log->raw_samples[0].gsr,
                          received_log->features.hrv_rmssd, received_log->features.tonic,
                          received_log->stress_class, received_log->experiment_phase);
             }

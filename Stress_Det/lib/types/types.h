@@ -6,7 +6,8 @@
 #include <stdio.h>
 
 typedef struct __attribute__((packed)) {
-    uint32_t ppg;
+    uint32_t ppg_raw;
+    float ppg_filtered;
     uint16_t gsr;
 } raw_data_t;
 
