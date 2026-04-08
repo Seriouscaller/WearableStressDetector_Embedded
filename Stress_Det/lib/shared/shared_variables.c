@@ -9,7 +9,6 @@ TaskHandle_t xFeatureExtractionTaskHandle = NULL;
 
 // Data Collection
 raw_data_t raw_data = {0};
-SemaphoreHandle_t ble_payload_mutex = NULL;
 QueueHandle_t data_log_queue = NULL;
 RingbufHandle_t raw_data_ringbuf = NULL;
 
@@ -17,10 +16,15 @@ RingbufHandle_t raw_data_ringbuf = NULL;
 ble_payload_a_t ble_payload_a = {0};
 ble_payload_b_t ble_payload_b = {0};
 ble_payload_c_t ble_payload_c = {0};
+SemaphoreHandle_t ble_payload_mutex = NULL;
 uint16_t ble_sensor_chr_a_val_handle;
 uint16_t ble_sensor_chr_b_val_handle;
 uint16_t ble_sensor_chr_c_val_handle;
+uint16_t ble_command_chr_val_handle;
 uint16_t ble_conn_handle;
+uint8_t ble_received_packet[2] = {0, 0};
+volatile uint8_t current_experiment_phase = 0;
+SemaphoreHandle_t experiment_phase_mutex = NULL;
 
 // PPG/GSR Processing
 raw_data_t processing_buffer[WINDOW_SIZE]; // 30 seconds of data approx 12 KB in RAM

@@ -16,6 +16,7 @@
 static const char *TAG = "TASKS";
 extern SemaphoreHandle_t ble_payload_mutex;
 extern uint16_t ble_conn_handle;
+extern bool is_sampling_active;
 extern bool show_telemetry;
 extern bool show_logged_values;
 extern bool enable_imu;
@@ -27,6 +28,8 @@ extern QueueHandle_t data_log_queue;
 extern ble_payload_a_t ble_payload_a;
 extern ble_payload_b_t ble_payload_b;
 extern ble_payload_c_t ble_payload_c;
+extern volatile uint8_t current_experiment_phase;
+extern SemaphoreHandle_t experiment_phase_mutex;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -37,30 +40,33 @@ void sensor_sampling_task(void *pvParameters)
     int samples_collected = 0;
 
     while (1) {
-        raw_data_t current_sample = {0};
+        if (is_sampling_active) {
 
-        bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg) == ESP_OK);
-        bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
+            raw_data_t current_sample = {0};
 
-        // Adds raw_data_t to static array
-        if (ppg_ok && gsr_ok) {
-            bundle[samples_collected++] = current_sample;
-        } else {
-            ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
-        }
+            bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg) == ESP_OK);
+            bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
 
-        if (show_telemetry) {
-            printf(">ppg: %lu\n", current_sample.ppg);
-            printf(">gsr: %u\n", current_sample.gsr);
-        }
-
-        // Once 200 samples (1 sec) is accumulated, bundle is sent off to Ringbuffer
-        if (samples_collected >= PPG_SAMPLE_RATE) {
-            if (xRingbufferSend(raw_data_ringbuf, bundle, sizeof(bundle), 0) == pdTRUE) {
-                samples_collected = 0;
+            // Adds raw_data_t to static array
+            if (ppg_ok && gsr_ok) {
+                bundle[samples_collected++] = current_sample;
             } else {
-                ESP_LOGE(TAG, "sensor_sampling_task - Ringbuffer full!");
-                samples_collected = 0;
+                ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
+            }
+
+            if (show_telemetry) {
+                printf(">ppg: %lu\n", current_sample.ppg);
+                printf(">gsr: %u\n", current_sample.gsr);
+            }
+
+            // Once 200 samples (1 sec) is accumulated, bundle is sent off to Ringbuffer
+            if (samples_collected >= PPG_SAMPLE_RATE) {
+                if (xRingbufferSend(raw_data_ringbuf, bundle, sizeof(bundle), 0) == pdTRUE) {
+                    samples_collected = 0;
+                } else {
+                    ESP_LOGE(TAG, "sensor_sampling_task - Ringbuffer full!");
+                    samples_collected = 0;
+                }
             }
         }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -106,14 +112,27 @@ void feature_extraction_task(void *pvParameters)
             // Inference using SOM model. Outputs class as single digit
             uint8_t result = som_model_predict(&features);
 
-            complete_log_t *final_log = malloc(sizeof(complete_log_t));
+            complete_log_t *final_log =
+                (complete_log_t *)heap_caps_malloc(sizeof(complete_log_t), MALLOC_CAP_SPIRAM);
             if (final_log) {
                 memcpy(final_log->raw_samples, new_samples, PPG_SAMPLE_RATE * sizeof(raw_data_t));
                 final_log->features = features;
                 final_log->stress_class = result;
                 final_log->timestamp = xTaskGetTickCount();
+                if (xSemaphoreTake(experiment_phase_mutex, pdMS_TO_TICKS(10))) {
+                    final_log->experiment_phase = current_experiment_phase;
+                    xSemaphoreGive(experiment_phase_mutex);
+                } else {
+                    ESP_LOGW(TAG, "feature_extraction_task - Failed to take semaphore. Exp. Phase not set!");
+                }
 
-                xQueueSend(data_log_queue, &final_log, 0);
+                if (xQueueSend(data_log_queue, &final_log, 0) != pdTRUE) {
+                    ESP_LOGE(TAG, "feature_extraction_task - Failed to send to queue!");
+                    heap_caps_free(final_log);
+                };
+
+            } else {
+                ESP_LOGE(TAG, "feature_extraction_task - Failed to allocate mem for final_log!");
             }
             vRingbufferReturnItem(raw_data_ringbuf, (void *)new_samples);
         } else if (new_samples == NULL) {
@@ -134,13 +153,13 @@ void logging_task(void *pvParameters)
     while (1) {
         if (xQueueReceive(data_log_queue, &received_log, portMAX_DELAY) == pdTRUE) {
             if (show_logged_values) {
-                ESP_LOGI(TAG, "%lu, %lu, %u, %f, %f, %u", received_log->timestamp,
+                ESP_LOGI(TAG, "t:%lu ppg:%lu gsr:%u rm:%f ton:%f cl:%u ph:%u", received_log->timestamp,
                          received_log->raw_samples[0].ppg, received_log->raw_samples[0].gsr,
                          received_log->features.hrv_rmssd, received_log->features.tonic,
-                         received_log->stress_class);
+                         received_log->stress_class, received_log->experiment_phase);
             }
 
-            if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 uint32_t sync_time = (uint32_t)(esp_timer_get_time() / 1000);
 
                 // Filling Part A
@@ -161,12 +180,14 @@ void logging_task(void *pvParameters)
                 ble_payload_c.phasic = received_log->features.phasic;
                 ble_payload_c.scr = received_log->features.scr;
                 ble_payload_c.stress_class = received_log->stress_class;
+                ble_payload_c.experiment_phase = received_log->experiment_phase;
 
                 xSemaphoreGive(ble_payload_mutex);
+                heap_caps_free(received_log);
             } else {
-                ESP_LOGW(TAG, "logging_task - Failed to take semaphore!");
+                ESP_LOGW(TAG, "logging_task - Failed to take ble_payload semaphore, data lost!");
+                heap_caps_free(received_log);
             }
-            free(received_log);
         }
     }
 }
@@ -195,7 +216,7 @@ void ble_update_task(void *pvParameters)
                 ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_c_val_handle, om_c);
                 xSemaphoreGive(ble_payload_mutex);
             } else {
-                ESP_LOGW(TAG, "Failed to take semaphore!");
+                ESP_LOGW(TAG, "ble_update_task - Failed to take ble_payload semaphore!");
             }
         }
         vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));

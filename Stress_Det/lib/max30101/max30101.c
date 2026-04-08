@@ -2,6 +2,7 @@
 
 #include "max30101.h"
 #include "board_config.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -36,10 +37,15 @@ static const char *TAG = "MAX30101";
 #define MAX30101_MODE_MULTI_LED 0x07
 #define MAX30101_FIFO_DATA_MASK 0x3FFFF
 
+#define BOOSTPMP_5V_ENABLE_PIN 2
+
 // Adds sensor to i2c
 // Configure device
 esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t *max_handle)
 {
+    gpio_reset_pin(BOOSTPMP_5V_ENABLE_PIN);
+    gpio_set_direction(BOOSTPMP_5V_ENABLE_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(BOOSTPMP_5V_ENABLE_PIN, 1);
 
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
