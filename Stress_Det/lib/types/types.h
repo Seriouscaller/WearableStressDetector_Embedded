@@ -12,6 +12,7 @@ typedef struct __attribute__((packed)) {
 } raw_data_t;
 
 typedef struct __attribute__((packed)) {
+    float hr;
     float hrv_rmssd;
     float hrv_sdnn;
     float tonic;
