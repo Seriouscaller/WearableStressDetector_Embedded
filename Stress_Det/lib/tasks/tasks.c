@@ -114,11 +114,10 @@ void feature_extraction_task(void *pvParameters)
                    SAMPLES_PER_SECOND * sizeof(raw_data_t));
 
             // Running patriks feature extraction functions in here.
-            // Along with normalization into floats
             som_input_t features = calculate_features(history, WINDOW_SIZE);
 
             // Inference using SOM model. Outputs class as single digit
-            uint8_t result = som_model_predict(&features);
+            uint8_t result = classify_stress(&features);
 
             complete_log_t *final_log =
                 (complete_log_t *)heap_caps_malloc(sizeof(complete_log_t), MALLOC_CAP_SPIRAM);
