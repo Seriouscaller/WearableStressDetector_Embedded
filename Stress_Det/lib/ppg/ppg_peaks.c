@@ -39,10 +39,11 @@ int ppg_detect_peak(float x)
         refractory--;
 
     // 🔹 5. Peak detection (lokal max + slope + threshold)
-    if (prev1 > prev2 &&          // lokal max (vänster)
+    if (prev1 > prev2 &&    
+        prev1 > smooth &&      // lokal max (vänster)
         prev1 > threshold &&      // över threshold
-        (prev1 - prev2) > 0.0001f // slope (tar bort små spikes)
-    ) {
+        (prev1 - prev2) > 0.0001f )// slope (tar bort små spikes)
+    {
         if (refractory == 0) {
             peak = 1;
             refractory = (int)(FS * REFRACTORY_SEC);
@@ -60,68 +61,3 @@ float ppg_get_env(void)
     return env;
 }
 
-/*#include "ppg_peaks.h"
-
-#define FS 200
-#define REFRACTORY_SEC 0.4f // 400 ms
-
-static float prev1 = 0;
-static float prev2 = 0;
-
-static int refractory = 0;
-
-void ppg_peaks_init()
-{
-    prev1 = prev2 = 0;
-    refractory = 0;
-}
-
-int ppg_detect_peak(float x)
-{
-    int peak = 0;
-
-    // adaptive threshold
-    static float avg = 0;
-    avg = 0.99f * avg + 0.01f * x;
-    float threshold = avg + 25.0f;
-
-    if (refractory > 0)
-        refractory--;
-
-    // lokal max + adaptive threshold
-    if (prev1 > prev2 && prev1 > x && prev1 > threshold) {
-
-        if (refractory == 0) {
-            peak = 1;
-            refractory = (int)(FS * REFRACTORY_SEC);
-        }
-    }
-
-    prev2 = prev1;
-    prev1 = x;
-
-    return peak;
-}*/
-
-/*int ppg_detect_peak(float x)
-{
-    int peak = 0;
-
-    if (refractory > 0)
-        refractory--;
-
-    // lokal max + threshold
-    if (prev1 > prev2 && prev1 > x && prev1 > 10.0f) {
-
-        if (refractory == 0) {
-            peak = 1;
-
-            refractory = (int)(FS * REFRACTORY_SEC);
-        }
-    }
-
-    prev2 = prev1;
-    prev1 = x;
-
-    return peak;
-}*/
