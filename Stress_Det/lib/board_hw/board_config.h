@@ -37,6 +37,6 @@ I2C Devices:
 
 // PPG Processing
 #define PPG_SAMPLE_RATE 200
-#define WINDOW_SIZE (30 * PPG_SAMPLE_RATE) // 30s = 3000 samples
+#define WINDOW_SIZE (30 * PPG_SAMPLE_RATE) // 30s = 6000 samples
 
-#define SAMPLES_PER_SECOND PPG_SAMPLE_RATE // 1 second @ 100Hz
+#define SAMPLES_PER_SECOND PPG_SAMPLE_RATE // 1 second @ 200Hz
