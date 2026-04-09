@@ -3,6 +3,8 @@
 
 #include "board_config.h"
 #include "esp_log.h"
+#include "ppg_hrv.h"
+#include "ppg_peaks.h"
 #include "types.h"
 #include <stdio.h>
 
@@ -19,8 +21,7 @@ typedef struct {
 } pulse_results_t;
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
-static float calculate_threshold(raw_data_t *signal, int length);
-static void detect_peaks(raw_data_t *signal, float threshold, pulse_results_t *results);
+static void detect_peaks(raw_data_t *signal, pulse_results_t *results);
 
 static const char *TAG = "SIGNAL_P";
 
@@ -31,69 +32,55 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     // Dont forget to normalize into floats!
 
     som_input_t features = {0};
-    /*
+
     pulse_results_t results = {0};
 
-    // 1. Get the dynamic threshold
-    float threshold = calculate_threshold(&history[0], TOTAL_SAMPLES);
-    printf(">Threshold: %.3f\n", threshold);
+    detect_peaks(&history[0], &results);
 
-    // 2. Identify peaks
-    detect_peaks(&history[0], threshold, &results);
+    results.average_hr = results.peak_count * 2.0f;
 
-    // 3. Extract Heart Rate
-    // calculate_metrics(&results);
+    ppg_hrv_init();
 
-    // 4. Output
-    printf("Detected %d beats. Average HR: %.2f BPM\n", results.peak_count, results.average_hr);
-    for (int i = 0; i < results.peak_count - 1; i++) {
-        printf(">IBI nr %d\n", i);
-        printf(">IBI val: %lu ms\n", results.ibi_ms[i]);
-    }*/
+    for (int i = 1; i < results.peak_count; i++) {
+
+        uint32_t t1 = results.timestamps_us[i - 1];
+        uint32_t t2 = results.timestamps_us[i];
+
+        float rr_ms = (t2 - t1) / 1000.0f;
+        float time_s = t2 / 1000000.0f;
+
+        ppg_add_rr(rr_ms, time_s);
+
+        ESP_LOGI(TAG, "IBI:%.1f", rr_ms);
+    }
+
+    float now_s = results.timestamps_us[results.peak_count - 1] / 1000000.0f;
+
+    ppg_features_t hrv = ppg_compute_hrv(now_s);
+
+    ESP_LOGI(TAG, "peaks:%d bpm:%.2f hr:%.2f rmssd:%.2f sdnn:%.2f", results.peak_count, results.average_hr,
+             hrv.hr, hrv.rmssd, hrv.sdnn);
 
     return features;
 }
 
-static float calculate_threshold(raw_data_t *signal, int length)
+static void detect_peaks(raw_data_t *signal, pulse_results_t *results)
 {
-    float max_val = signal[0].ppg_filtered;
-    float min_val = signal[0].ppg_filtered;
-
-    for (int i = 1; i < length; i++) {
-        if (signal[i].ppg_filtered > max_val)
-            max_val = signal[i].ppg_filtered;
-        if (signal[i].ppg_filtered < min_val)
-            min_val = signal[i].ppg_filtered;
-    }
-
-    // Set threshold at 60% of the peak-to-peak height above the minimum
-    return min_val + (max_val - min_val) * 0.60f;
-}
-
-static void detect_peaks(raw_data_t *signal, float threshold, pulse_results_t *results)
-{
-    bool looking_for_peak = true;
-    int refractory_samples = (300 * 1000) / US_PER_SAMPLE; // 300ms worth of samples
-    int last_peak_index = -refractory_samples;
+    ppg_peaks_init();
 
     results->peak_count = 0;
 
-    for (int i = 1; i < TOTAL_SAMPLES - 1; i++) {
-        // 1. Check if signal is above threshold and we are outside refractory period
-        if (signal[i].ppg_filtered > threshold && (i - last_peak_index) > refractory_samples) {
+    for (int i = 0; i < TOTAL_SAMPLES; i++) {
 
-            // 2. Local Maximum Check: Is this point higher than its neighbors?
-            if (signal[i].ppg_filtered > signal[i - 1].ppg_filtered &&
-                signal[i].ppg_filtered > signal[i + 1].ppg_filtered) {
+        float x = signal[i].ppg_filtered;
 
-                // Peak confirmed
-                results->timestamps_us[results->peak_count] = (uint32_t)i * US_PER_SAMPLE;
-                results->peak_count++;
-                last_peak_index = i;
+        if (ppg_detect_peak(x)) {
 
-                if (results->peak_count >= MAX_PEAKS)
-                    break;
-            }
+            results->timestamps_us[results->peak_count] = (uint32_t)i * US_PER_SAMPLE;
+            results->peak_count++;
+
+            if (results->peak_count >= MAX_PEAKS)
+                break;
         }
     }
 }
