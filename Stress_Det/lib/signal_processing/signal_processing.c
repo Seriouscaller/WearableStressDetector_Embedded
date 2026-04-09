@@ -3,6 +3,7 @@
 
 #include "board_config.h"
 #include "esp_log.h"
+#include "ppg_hrv.h"
 #include "ppg_peaks.h"
 #include "types.h"
 #include <stdio.h>
@@ -38,7 +39,27 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 
     results.average_hr = results.peak_count * 2.0f;
 
-    ESP_LOGI(TAG, "peaks:%d bpm:%.2f", results.peak_count, results.average_hr);
+    ppg_hrv_init();
+
+    for (int i = 1; i < results.peak_count; i++) {
+
+        uint32_t t1 = results.timestamps_us[i - 1];
+        uint32_t t2 = results.timestamps_us[i];
+
+        float rr_ms = (t2 - t1) / 1000.0f;
+        float time_s = t2 / 1000000.0f;
+
+        ppg_add_rr(rr_ms, time_s);
+
+        ESP_LOGI(TAG, "IBI:%.1f", rr_ms);
+    }
+
+    float now_s = results.timestamps_us[results.peak_count - 1] / 1000000.0f;
+
+    ppg_features_t hrv = ppg_compute_hrv(now_s);
+
+    ESP_LOGI(TAG, "peaks:%d bpm:%.2f hr:%.2f rmssd:%.2f sdnn:%.2f", results.peak_count, results.average_hr,
+             hrv.hr, hrv.rmssd, hrv.sdnn);
 
     return features;
 }
