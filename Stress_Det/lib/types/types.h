@@ -45,10 +45,10 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     uint32_t timestamp;                                     // 4 Bytes
     raw_data_t raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD]; // Last 40 samples (400 bytes)
-    float rmssd, sdnn, scr, tonic, phasic;                  // (20 bytes)
+    float hr, rmssd, sdnn, scr, tonic, phasic;              // (24 bytes)
     uint8_t stress_class;                                   // (1 byte)
     uint8_t experiment_phase;                               // (1 byte)
-} ble_payload_final_t;                                      // Total: 426 bytes
+} ble_payload_final_t;                                      // Total: 430 bytes
 
 typedef struct {
     int16_t acc_x;

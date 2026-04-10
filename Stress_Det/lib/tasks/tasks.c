@@ -202,9 +202,10 @@ void logging_task(void *pvParameters)
                 // Filling Final
                 ble_payload_final.timestamp = sync_time;
                 memcpy(ble_payload_final.raw_samples,
-                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 3],
+                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 4],
                        sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
 
+                ble_payload_final.hr = received_log->features.hr;
                 ble_payload_final.rmssd = received_log->features.hrv_rmssd;
                 ble_payload_final.sdnn = received_log->features.hrv_sdnn;
                 ble_payload_final.scr = received_log->features.scr;
@@ -228,6 +229,9 @@ void logging_task(void *pvParameters)
 void ble_update_task(void *pvParameters)
 {
     while (1) {
+        if (!is_sampling_active) {
+            vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
+        }
         // Only send if a phone is connected
         if (ble_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
 
@@ -258,7 +262,6 @@ void ble_update_task(void *pvParameters)
                 ESP_LOGW(TAG, "ble_update_task - Failed to take ble_payload semaphore!");
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
     }
 }
 

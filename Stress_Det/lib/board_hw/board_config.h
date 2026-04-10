@@ -32,6 +32,9 @@ I2C Devices:
 // BLE update interval (how often we send data to the connected phone/PC)
 #define BLE_NOTIFY_INTERVAL_MS 1000
 
+// Battery
+#define BATTERY_SAMPLING_INTERVAL_MS 2000
+
 // Ring buffer which keeps PPG and EDA values for future feature extraction
 #define RING_BUF_SIZE (WINDOW_SIZE * sizeof(raw_data_t) + 1024) // +1024 for overhead
 

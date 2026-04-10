@@ -5,17 +5,7 @@
 #include <math.h>
 #include <stdio.h>
 
-/*
-2. Pack floats in correct order in array
-3. Normalize the data using robustscaler
-    scaled = input - median / IQR
-    (Possibility to clip data to prevent sensor spikes)
-4. Finding the BMU
-    4.1 Iterate through all 400 neurons
-    4.2 Calculate eucledian distance between scaled inputvector and neurons 6 weights
-    4.3 Neuron with smallest distance is selected.
-5. Cross reference which class the neuron belongs to.
-*/
+// Feature order in struct som_input_t and trained ML model:
 // HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
 
 #define SOM_NEURONS 400
@@ -28,17 +18,12 @@ static uint16_t get_winning_neuron(float *scaled_input);
 
 int classify_stress(som_input_t *features)
 {
+    /* Real data
     float input[SOM_INPUT_LEN] = {features->hr,  features->hrv_rmssd, features->hrv_sdnn,
-                                  features->scr, features->tonic,     features->phasic};
+                                  features->scr, features->tonic,     features->phasic};*/
 
-    // HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
-
-    input[0] = -11.11f;
-    input[1] = 11.11f;
-    input[2] = -11.11f;
-    input[3] = 11.11f;
-    input[4] = 11.11f;
-    input[5] = 11.11f;
+    /* Test data */
+    float input[SOM_INPUT_LEN] = {-11.11f, 11.11f, -11.11f, 11.11f, 11.11f, 11.11f};
 
     // Normalization
     float scaled_input[SOM_INPUT_LEN] = {0};
@@ -62,6 +47,7 @@ int classify_stress(som_input_t *features)
     return (int)som_clusters[bmu_index];
 }
 
+/* Normalization using RobustScaler */
 static void normalize(float *input, float *scaled_output)
 {
     // scaled = input - median / IQR
@@ -81,7 +67,6 @@ static uint16_t get_winning_neuron(float *scaled_input)
         for (int feature = 0; feature < SOM_INPUT_LEN; feature++) {
             float diff = scaled_input[feature] - som_weights[neuron * SOM_INPUT_LEN + feature];
             current_distance += diff * diff;
-            // ESP_LOGI("get_winner", "diff: %f", current_distance);
         }
         if (current_distance < min_distance) {
             min_distance = current_distance;

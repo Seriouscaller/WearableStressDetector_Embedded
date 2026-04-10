@@ -113,8 +113,8 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
 // Assigns permission for phone to READ values from char, and the S3
 // to push/notify when new data is available.
 // Data pushed over BLE consist of complete_data_t which is split
-// into 3 parts to fit into Max Transmissible Unit. Each part
-// becomes a separate characteristic. The three parts are
+// into 5 parts to fit into Max Transmissible Unit. Each part
+// becomes a separate characteristic. The five parts are
 // reassembled on the receiving side (python script).
 const struct ble_gatt_svc_def gatt_svcs[] = {{
                                                  .type = BLE_GATT_SVC_TYPE_PRIMARY,
