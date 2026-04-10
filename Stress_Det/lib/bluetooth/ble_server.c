@@ -54,6 +54,15 @@ int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+// Callback when phone requests the name of characteristics
+int gatt_svr_dsc_access(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (arg != NULL) {
+        return os_mbuf_append(ctxt->om, arg, strlen((char *)arg));
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 // GAP Event Handler (nimBLE)
 // Handles connection-events of the BLE. Restarts advertising if
 // a connected device disconnects. Can also negotiate a new
