@@ -15,6 +15,8 @@
 #include "signal_processing.h"
 #include <stdio.h>
 
+static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
+
 static const char *TAG = "TASKS";
 extern uint16_t ble_conn_handle;
 extern uint16_t ble_sensor_chr_a_val_handle;
@@ -229,34 +231,26 @@ void logging_task(void *pvParameters)
 void ble_update_task(void *pvParameters)
 {
     while (1) {
-        if (!is_sampling_active) {
-            vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
-        }
-        // Only send if a phone is connected
-        if (ble_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
+
+        // Only send if a phone is connected, and sampling is enabled
+        if (is_sampling_active && ble_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
 
             // Is ble_sensor_payload free from producers?
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
 
-                // Send Part A
-                struct os_mbuf *om_a = ble_hs_mbuf_from_flat(&ble_payload_bulk_a, sizeof(ble_payload_bulk_t));
-                ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_a_val_handle, om_a);
+                // Send Complete log 2000B. Split into 400B payloads
+                send_ble_payload(ble_sensor_chr_a_val_handle, &ble_payload_bulk_a,
+                                 sizeof(ble_payload_bulk_t));
+                send_ble_payload(ble_sensor_chr_b_val_handle, &ble_payload_bulk_b,
+                                 sizeof(ble_payload_bulk_t));
+                send_ble_payload(ble_sensor_chr_c_val_handle, &ble_payload_bulk_c,
+                                 sizeof(ble_payload_bulk_t));
+                send_ble_payload(ble_sensor_chr_d_val_handle, &ble_payload_bulk_d,
+                                 sizeof(ble_payload_bulk_t));
+                send_ble_payload(ble_sensor_chr_e_val_handle, &ble_payload_final,
+                                 sizeof(ble_payload_final_t));
 
-                // Send Part B
-                struct os_mbuf *om_b = ble_hs_mbuf_from_flat(&ble_payload_bulk_b, sizeof(ble_payload_bulk_t));
-                ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_b_val_handle, om_b);
-
-                // Send Part C
-                struct os_mbuf *om_c = ble_hs_mbuf_from_flat(&ble_payload_bulk_c, sizeof(ble_payload_bulk_t));
-                ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_c_val_handle, om_c);
-
-                // Send Part D
-                struct os_mbuf *om_d = ble_hs_mbuf_from_flat(&ble_payload_bulk_d, sizeof(ble_payload_bulk_t));
-                ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_d_val_handle, om_d);
-
-                // Send Part E final
-                struct os_mbuf *om_e = ble_hs_mbuf_from_flat(&ble_payload_final, sizeof(ble_payload_final_t));
-                ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_e_val_handle, om_e);
                 xSemaphoreGive(ble_payload_mutex);
             } else {
                 ESP_LOGW(TAG, "ble_update_task - Failed to take ble_payload semaphore!");
@@ -281,5 +275,16 @@ void battery_task(void *pvParameters)
             ESP_LOGE(TAG, "Failed to read battery Voltage!");
         }
         vTaskDelay(pdTICKS_TO_MS(BATTERY_SAMPLING_INTERVAL_MS));
+    }
+}
+
+static void send_ble_payload(uint16_t handle, void *data, uint16_t len)
+{
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
+    if (om) {
+        int rc = ble_gatts_notify_custom(ble_conn_handle, handle, om);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "send_ble_payload - Notification failed!");
+        }
     }
 }

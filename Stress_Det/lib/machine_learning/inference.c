@@ -10,7 +10,7 @@
 
 #define SOM_NEURONS 400
 #define SOM_INPUT_LEN 6
-bool debug_som = true;
+bool debug_som = false;
 
 static void normalize(float *input, float *scaled_output);
 int classify_stress(som_input_t *features);
@@ -73,6 +73,8 @@ static uint16_t get_winning_neuron(float *scaled_input)
             best_neuron = neuron;
         }
     }
-    ESP_LOGI("get_winner", "best neuron: %u", best_neuron);
+    if (debug_som) {
+        ESP_LOGI("get_winner", "best neuron: %u", best_neuron);
+    }
     return best_neuron;
 }
