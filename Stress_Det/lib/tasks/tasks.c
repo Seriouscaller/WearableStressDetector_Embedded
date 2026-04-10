@@ -16,8 +16,12 @@
 #include <stdio.h>
 
 static const char *TAG = "TASKS";
-extern SemaphoreHandle_t ble_payload_mutex;
 extern uint16_t ble_conn_handle;
+extern uint16_t ble_sensor_chr_a_val_handle;
+extern uint16_t ble_sensor_chr_b_val_handle;
+extern uint16_t ble_sensor_chr_c_val_handle;
+extern uint16_t ble_sensor_chr_d_val_handle;
+extern uint16_t ble_sensor_chr_e_val_handle;
 extern bool is_sampling_active;
 extern bool show_telemetry;
 extern bool show_logged_values;
@@ -27,11 +31,14 @@ extern bool enable_gsr;
 extern bool enable_temp;
 extern RingbufHandle_t raw_data_ringbuf;
 extern QueueHandle_t data_log_queue;
-extern ble_payload_a_t ble_payload_a;
-extern ble_payload_b_t ble_payload_b;
-extern ble_payload_c_t ble_payload_c;
-extern volatile uint8_t current_experiment_phase;
+extern ble_payload_bulk_t ble_payload_bulk_a;
+extern ble_payload_bulk_t ble_payload_bulk_b;
+extern ble_payload_bulk_t ble_payload_bulk_c;
+extern ble_payload_bulk_t ble_payload_bulk_d;
+extern ble_payload_final_t ble_payload_final;
+extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
+extern volatile uint8_t current_experiment_phase;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -169,25 +176,42 @@ void logging_task(void *pvParameters)
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 uint32_t sync_time = (uint32_t)(esp_timer_get_time() / 1000);
 
-                // Filling Part A
-                ble_payload_a.timestamp = sync_time;
-                memcpy(ble_payload_a.raw_samples, &received_log->raw_samples[0], sizeof(raw_data_t) * 75);
+                // Filling Bulk Part A
+                ble_payload_bulk_a.timestamp = sync_time;
+                memcpy(ble_payload_bulk_a.raw_samples, &received_log->raw_samples[0],
+                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
 
-                // Filling Part B
-                ble_payload_b.timestamp = sync_time;
-                memcpy(ble_payload_b.raw_samples, &received_log->raw_samples[75], sizeof(raw_data_t) * 75);
+                // Filling Bulk Part B
+                ble_payload_bulk_b.timestamp = sync_time;
+                memcpy(ble_payload_bulk_b.raw_samples,
+                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD],
+                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
 
-                // Filling Part C
-                ble_payload_c.timestamp = sync_time;
-                memcpy(ble_payload_c.raw_samples, &received_log->raw_samples[150], sizeof(raw_data_t) * 50);
+                // Filling Bulk Part C
+                ble_payload_bulk_c.timestamp = sync_time;
+                memcpy(ble_payload_bulk_c.raw_samples,
+                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 2],
+                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
 
-                ble_payload_c.rmssd = received_log->features.hrv_rmssd;
-                ble_payload_c.sdnn = received_log->features.hrv_sdnn;
-                ble_payload_c.tonic = received_log->features.tonic;
-                ble_payload_c.phasic = received_log->features.phasic;
-                ble_payload_c.scr = received_log->features.scr;
-                ble_payload_c.stress_class = received_log->stress_class;
-                ble_payload_c.experiment_phase = received_log->experiment_phase;
+                // Filling Bulk Part D
+                ble_payload_bulk_d.timestamp = sync_time;
+                memcpy(ble_payload_bulk_d.raw_samples,
+                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 3],
+                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
+
+                // Filling Final
+                ble_payload_final.timestamp = sync_time;
+                memcpy(ble_payload_final.raw_samples,
+                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 3],
+                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
+
+                ble_payload_final.rmssd = received_log->features.hrv_rmssd;
+                ble_payload_final.sdnn = received_log->features.hrv_sdnn;
+                ble_payload_final.scr = received_log->features.scr;
+                ble_payload_final.tonic = received_log->features.tonic;
+                ble_payload_final.phasic = received_log->features.phasic;
+                ble_payload_final.stress_class = received_log->stress_class;
+                ble_payload_final.experiment_phase = received_log->experiment_phase;
 
                 xSemaphoreGive(ble_payload_mutex);
                 heap_caps_free(received_log);
@@ -211,16 +235,24 @@ void ble_update_task(void *pvParameters)
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
 
                 // Send Part A
-                struct os_mbuf *om_a = ble_hs_mbuf_from_flat(&ble_payload_a, sizeof(ble_payload_a));
+                struct os_mbuf *om_a = ble_hs_mbuf_from_flat(&ble_payload_bulk_a, sizeof(ble_payload_bulk_t));
                 ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_a_val_handle, om_a);
 
                 // Send Part B
-                struct os_mbuf *om_b = ble_hs_mbuf_from_flat(&ble_payload_b, sizeof(ble_payload_b));
+                struct os_mbuf *om_b = ble_hs_mbuf_from_flat(&ble_payload_bulk_b, sizeof(ble_payload_bulk_t));
                 ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_b_val_handle, om_b);
 
                 // Send Part C
-                struct os_mbuf *om_c = ble_hs_mbuf_from_flat(&ble_payload_c, sizeof(ble_payload_c));
+                struct os_mbuf *om_c = ble_hs_mbuf_from_flat(&ble_payload_bulk_c, sizeof(ble_payload_bulk_t));
                 ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_c_val_handle, om_c);
+
+                // Send Part D
+                struct os_mbuf *om_d = ble_hs_mbuf_from_flat(&ble_payload_bulk_d, sizeof(ble_payload_bulk_t));
+                ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_d_val_handle, om_d);
+
+                // Send Part E final
+                struct os_mbuf *om_e = ble_hs_mbuf_from_flat(&ble_payload_final, sizeof(ble_payload_final_t));
+                ble_gatts_notify_custom(ble_conn_handle, ble_sensor_chr_e_val_handle, om_e);
                 xSemaphoreGive(ble_payload_mutex);
             } else {
                 ESP_LOGW(TAG, "ble_update_task - Failed to take ble_payload semaphore!");
@@ -245,6 +277,6 @@ void battery_task(void *pvParameters)
         } else {
             ESP_LOGE(TAG, "Failed to read battery Voltage!");
         }
-        vTaskDelay(pdTICKS_TO_MS(2000));
+        vTaskDelay(pdTICKS_TO_MS(BATTERY_SAMPLING_INTERVAL_MS));
     }
 }

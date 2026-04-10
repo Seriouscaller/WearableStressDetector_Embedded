@@ -6,7 +6,16 @@ const ble_uuid128_t ble_sensor_svc_uuid;
 const ble_uuid128_t ble_sensor_chr_a_uuid;
 const ble_uuid128_t ble_sensor_chr_b_uuid;
 const ble_uuid128_t ble_sensor_chr_c_uuid;
+const ble_uuid128_t ble_sensor_chr_d_uuid;
+const ble_uuid128_t ble_sensor_chr_e_uuid;
 const struct ble_gatt_svc_def gatt_svcs[];
+
+extern uint16_t ble_sensor_chr_a_val_handle;
+extern uint16_t ble_sensor_chr_b_val_handle;
+extern uint16_t ble_sensor_chr_c_val_handle;
+extern uint16_t ble_sensor_chr_d_val_handle;
+extern uint16_t ble_sensor_chr_e_val_handle;
+extern uint16_t ble_command_chr_val_handle;
 
 // Custom 128-bit UUIDs (Little Endian)
 // Service ("folder")
@@ -28,6 +37,16 @@ const ble_uuid128_t ble_sensor_chr_b_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0
 // 00 00 ff 05 ab cd 12 34 cd cd 12 34 56 78 9a bc
 const ble_uuid128_t ble_sensor_chr_c_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0xcd, 0xab,
                                                              0x34, 0x12, 0xcd, 0xab, 0x05, 0xff, 0x00, 0x00);
+
+// Characteristic ("part d")
+// 00 00 ff 07 ab cd 12 34 cd cd 12 34 56 78 9a bc
+const ble_uuid128_t ble_sensor_chr_d_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0xcd, 0xab,
+                                                             0x34, 0x12, 0xcd, 0xab, 0x07, 0xff, 0x00, 0x00);
+
+// Characteristic ("part e")
+// 00 00 ff 08 ab cd 12 34 cd cd 12 34 56 78 9a bc
+const ble_uuid128_t ble_sensor_chr_e_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0xcd, 0xab,
+                                                             0x34, 0x12, 0xcd, 0xab, 0x08, 0xff, 0x00, 0x00);
 
 // Characteristic Command
 // 00 00 ff 06 ab cd 12 34 cd cd 12 34 56 78 9a bc
@@ -60,6 +79,14 @@ const struct ble_gatt_svc_def gatt_svcs[] = {
                                       .access_cb = sensor_read_cb,
                                       .flags = BLE_GATT_CHR_F_NOTIFY,
                                       .val_handle = &ble_sensor_chr_c_val_handle},
+                                     {.uuid = &ble_sensor_chr_d_uuid.u, // UUID ...07ff...   Part D
+                                      .access_cb = sensor_read_cb,
+                                      .flags = BLE_GATT_CHR_F_NOTIFY,
+                                      .val_handle = &ble_sensor_chr_d_val_handle},
+                                     {.uuid = &ble_sensor_chr_e_uuid.u, // UUID ...08ff...   Part E
+                                      .access_cb = sensor_read_cb,
+                                      .flags = BLE_GATT_CHR_F_NOTIFY,
+                                      .val_handle = &ble_sensor_chr_e_val_handle},
                                      {.uuid = &ble_command_chr_uuid.u, // UUID ...06ff...   Commands
                                       .access_cb = control_write_cb,
                                       .flags = BLE_GATT_CHR_F_WRITE,
