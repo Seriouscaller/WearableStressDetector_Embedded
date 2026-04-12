@@ -1,11 +1,14 @@
 #include "ble_commands.h"
+#include "esp_spiffs.h"
 #include "gatt.h"
 #include "shared_variables.h"
+#include "storage.h"
 #include <stdio.h>
 
 #define BLE_CMD_START_SAMPLING 0x01
 #define BLE_CMD_STOP_SAMPLING 0x02
 #define BLE_CMD_SET_EXP_PHASE 0x03
+#define BLE_CMD_CLEAR_SPIFFS 0x55
 #define BLE_CMD_REBOOT 0x99
 
 #define SIZE_PACKET_WITH_PAYLOAD 2
@@ -75,6 +78,14 @@ int control_write_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ct
     } else if (ble_received_packet[0] == BLE_CMD_STOP_SAMPLING) {
         ESP_LOGI(TAG, "Sampling halted!");
         is_sampling_active = false;
+    } else if (ble_received_packet[0] == BLE_CMD_CLEAR_SPIFFS) {
+        esp_err_t res = esp_spiffs_format(PARTITION_NAME);
+        if (res == ESP_OK) {
+            ESP_LOGI(TAG, "SPIFFS Formatting!");
+            check_spiffs_status(PARTITION_NAME);
+        } else {
+            ESP_LOGW(TAG, "SPIFFS Formatting failed!");
+        }
     } else if (ble_received_packet[0] == BLE_CMD_REBOOT) {
         ESP_LOGI(TAG, "Device rebooting!");
         esp_restart();

@@ -22,7 +22,7 @@
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
 static void collect_training_data(complete_log_t *log, uint16_t *buff_index);
 static void store_training_data(uint16_t *buff_index);
-static void fragmenting_ble_payloads(complete_log_t *log);
+static void fragment_ble_payloads(complete_log_t *log);
 
 static const char *TAG = "TASKS";
 extern uint16_t ble_conn_handle;
@@ -184,7 +184,7 @@ void logging_task(void *pvParameters)
 
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
 
-                fragmenting_ble_payloads(received_log);
+                fragment_ble_payloads(received_log);
                 xSemaphoreGive(ble_payload_mutex);
 
                 collect_training_data(received_log, &buffer_index);
@@ -238,17 +238,17 @@ void battery_task(void *pvParameters)
     static int voltage_mV;
 
     while (1) {
+        vTaskDelay(pdTICKS_TO_MS(BATTERY_SAMPLING_INTERVAL_MS));
         esp_err_t ret = read_battery_voltage(&adc1_handle, &adc1_cali_chan0_handle, &adc_raw, &voltage_mV);
         if (ret == ESP_OK) {
             log_battery_voltage(&adc_raw, &voltage_mV);
         } else {
             ESP_LOGE(TAG, "Failed to read battery Voltage!");
         }
-        vTaskDelay(pdTICKS_TO_MS(BATTERY_SAMPLING_INTERVAL_MS));
     }
 }
 
-static void fragmenting_ble_payloads(complete_log_t *log)
+static void fragment_ble_payloads(complete_log_t *log)
 {
     uint32_t sync_time = log->timestamp;
 
