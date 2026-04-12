@@ -37,6 +37,7 @@ extern bool enable_temp;
 void app_main(void)
 {
     ESP_ERROR_CHECK(init_raw_data_ring_buffer(&raw_data_ringbuf));
+    ESP_ERROR_CHECK(init_storage_transfer_learning());
 
     ble_payload_mutex = xSemaphoreCreateMutex();
     if (ble_payload_mutex == NULL) {

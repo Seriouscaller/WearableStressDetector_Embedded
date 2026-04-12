@@ -5,6 +5,7 @@
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
+#include "esp_spiffs.h"
 #include "freertos/ringbuf.h"
 #include "gatt.h"
 #include "gsr.h"
@@ -13,9 +14,15 @@
 #include "ppg_processing.h"
 #include "shared_variables.h"
 #include "signal_processing.h"
+#include "storage.h"
 #include <stdio.h>
 
+#define STORAGE_BUFFER_SIZE 10
+
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
+static void collect_training_data(complete_log_t *log, uint16_t *buff_index);
+static void store_training_data(uint16_t *buff_index);
+static void fragmenting_ble_payloads(complete_log_t *log);
 
 static const char *TAG = "TASKS";
 extern uint16_t ble_conn_handle;
@@ -33,14 +40,12 @@ extern bool enable_gsr;
 extern bool enable_temp;
 extern RingbufHandle_t raw_data_ringbuf;
 extern QueueHandle_t data_log_queue;
-extern ble_payload_bulk_t ble_payload_bulk_a;
-extern ble_payload_bulk_t ble_payload_bulk_b;
-extern ble_payload_bulk_t ble_payload_bulk_c;
-extern ble_payload_bulk_t ble_payload_bulk_d;
+extern ble_payload_bulk_t ble_payloads_bulk[];
 extern ble_payload_final_t ble_payload_final;
 extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
 extern volatile uint8_t current_experiment_phase;
+extern som_input_transfer_learning_t transfer_learning_buffer[];
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -166,6 +171,8 @@ void feature_extraction_task(void *pvParameters)
 void logging_task(void *pvParameters)
 {
     complete_log_t *received_log;
+    static uint16_t buffer_index = 0;
+
     while (1) {
         if (xQueueReceive(data_log_queue, &received_log, portMAX_DELAY) == pdTRUE) {
             if (show_logged_values) {
@@ -176,52 +183,18 @@ void logging_task(void *pvParameters)
             }
 
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                uint32_t sync_time = (uint32_t)(esp_timer_get_time() / 1000);
 
-                // Filling Bulk Part A
-                ble_payload_bulk_a.timestamp = sync_time;
-                memcpy(ble_payload_bulk_a.raw_samples, &received_log->raw_samples[0],
-                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
-
-                // Filling Bulk Part B
-                ble_payload_bulk_b.timestamp = sync_time;
-                memcpy(ble_payload_bulk_b.raw_samples,
-                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD],
-                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
-
-                // Filling Bulk Part C
-                ble_payload_bulk_c.timestamp = sync_time;
-                memcpy(ble_payload_bulk_c.raw_samples,
-                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 2],
-                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
-
-                // Filling Bulk Part D
-                ble_payload_bulk_d.timestamp = sync_time;
-                memcpy(ble_payload_bulk_d.raw_samples,
-                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 3],
-                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
-
-                // Filling Final
-                ble_payload_final.timestamp = sync_time;
-                memcpy(ble_payload_final.raw_samples,
-                       &received_log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 4],
-                       sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
-
-                ble_payload_final.hr = received_log->features.hr;
-                ble_payload_final.rmssd = received_log->features.hrv_rmssd;
-                ble_payload_final.sdnn = received_log->features.hrv_sdnn;
-                ble_payload_final.scr = received_log->features.scr;
-                ble_payload_final.tonic = received_log->features.tonic;
-                ble_payload_final.phasic = received_log->features.phasic;
-                ble_payload_final.stress_class = received_log->stress_class;
-                ble_payload_final.experiment_phase = received_log->experiment_phase;
-
+                fragmenting_ble_payloads(received_log);
                 xSemaphoreGive(ble_payload_mutex);
+
+                collect_training_data(received_log, &buffer_index);
+
                 heap_caps_free(received_log);
             } else {
                 ESP_LOGW(TAG, "logging_task - Failed to take ble_payload semaphore, data lost!");
                 heap_caps_free(received_log);
             }
+            store_training_data(&buffer_index);
         }
     }
 }
@@ -230,6 +203,9 @@ void logging_task(void *pvParameters)
 // Task responsible for sending data every second over BLE
 void ble_update_task(void *pvParameters)
 {
+    uint16_t handles[] = {ble_sensor_chr_a_val_handle, ble_sensor_chr_b_val_handle,
+                          ble_sensor_chr_c_val_handle, ble_sensor_chr_d_val_handle,
+                          ble_sensor_chr_e_val_handle};
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
 
@@ -239,17 +215,11 @@ void ble_update_task(void *pvParameters)
             // Is ble_sensor_payload free from producers?
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
 
-                // Send Complete log 2000B. Split into 400B payloads
-                send_ble_payload(ble_sensor_chr_a_val_handle, &ble_payload_bulk_a,
-                                 sizeof(ble_payload_bulk_t));
-                send_ble_payload(ble_sensor_chr_b_val_handle, &ble_payload_bulk_b,
-                                 sizeof(ble_payload_bulk_t));
-                send_ble_payload(ble_sensor_chr_c_val_handle, &ble_payload_bulk_c,
-                                 sizeof(ble_payload_bulk_t));
-                send_ble_payload(ble_sensor_chr_d_val_handle, &ble_payload_bulk_d,
-                                 sizeof(ble_payload_bulk_t));
-                send_ble_payload(ble_sensor_chr_e_val_handle, &ble_payload_final,
-                                 sizeof(ble_payload_final_t));
+                // Send Complete log 2042B. Split into 400B payloads
+                for (int i = 0; i < 4; i++) {
+                    send_ble_payload(handles[i], &ble_payloads_bulk[i], sizeof(ble_payload_bulk_t));
+                }
+                send_ble_payload(handles[4], &ble_payload_final, sizeof(ble_payload_final_t));
 
                 xSemaphoreGive(ble_payload_mutex);
             } else {
@@ -278,6 +248,32 @@ void battery_task(void *pvParameters)
     }
 }
 
+static void fragmenting_ble_payloads(complete_log_t *log)
+{
+    uint32_t sync_time = log->timestamp;
+
+    // Filling 4 bulk payloads
+    for (int i = 0; i < 4; i++) {
+        ble_payloads_bulk[i].timestamp = sync_time;
+        memcpy(ble_payloads_bulk[i].raw_samples, &log->raw_samples[i * BLE_NUM_OF_SAMPLES_PER_PAYLOAD],
+               sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
+    }
+
+    // Filling Final
+    ble_payload_final.timestamp = sync_time;
+    memcpy(ble_payload_final.raw_samples, &log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 4],
+           sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
+
+    ble_payload_final.hr = log->features.hr;
+    ble_payload_final.rmssd = log->features.hrv_rmssd;
+    ble_payload_final.sdnn = log->features.hrv_sdnn;
+    ble_payload_final.scr = log->features.scr;
+    ble_payload_final.tonic = log->features.tonic;
+    ble_payload_final.phasic = log->features.phasic;
+    ble_payload_final.stress_class = log->stress_class;
+    ble_payload_final.experiment_phase = log->experiment_phase;
+}
+
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len)
 {
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
@@ -285,6 +281,36 @@ static void send_ble_payload(uint16_t handle, void *data, uint16_t len)
         int rc = ble_gatts_notify_custom(ble_conn_handle, handle, om);
         if (rc != 0) {
             ESP_LOGE(TAG, "send_ble_payload - Notification failed!");
+        }
+    }
+}
+
+static void collect_training_data(complete_log_t *log, uint16_t *buff_index)
+{
+    transfer_learning_buffer[*buff_index].features = log->features;
+    transfer_learning_buffer[*buff_index].experiment_phase = log->experiment_phase;
+
+    if (*buff_index < STORAGE_BUFFER_SIZE) {
+        (*buff_index)++;
+    } else {
+        ESP_LOGW(TAG, "Buffer overflowing! Data lost!");
+        *buff_index = 0;
+    }
+}
+
+static void store_training_data(uint16_t *buff_index)
+{
+    if (*buff_index >= STORAGE_BUFFER_SIZE) {
+        FILE *f = fopen(LOG_FILE_PATH, "ab");
+        if (f == NULL) {
+            ESP_LOGE(TAG, "logging_task - Failed to open file for appending!");
+        } else {
+            fwrite(transfer_learning_buffer, sizeof(som_input_transfer_learning_t), STORAGE_BUFFER_SIZE, f);
+            fclose(f);
+            *buff_index = 0;
+            ESP_LOGI(TAG, "Saved %d samples to SPIFFS", STORAGE_BUFFER_SIZE);
+
+            check_spiffs_status(PARTITION_NAME);
         }
     }
 }
