@@ -3,6 +3,7 @@
 #include "driver/spi_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "gatt.h"
 #include <stdio.h>
 
 #define BLE_NUM_OF_SAMPLES_PER_PAYLOAD 40
@@ -69,3 +70,23 @@ typedef struct {
     i2c_master_dev_handle_t *max_handle;
     spi_device_handle_t *gsr_handle;
 } sensor_handles_t;
+
+typedef struct {
+    uint16_t ble_sensor_chr_a_val_handle;
+    uint16_t ble_sensor_chr_b_val_handle;
+    uint16_t ble_sensor_chr_c_val_handle;
+    uint16_t ble_sensor_chr_d_val_handle;
+    uint16_t ble_sensor_chr_e_val_handle;
+    uint16_t ble_command_chr_val_handle;
+} ble_sensor_handles_t;
+
+typedef struct {
+    bool show_telemetry;
+    bool show_logged_values;
+    bool show_battery_log;
+    bool show_gsr_debugging;
+    bool enable_imu;
+    bool enable_ppg;
+    bool enable_gsr;
+    bool enable_temp;
+} device_control_t;

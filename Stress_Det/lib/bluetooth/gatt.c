@@ -1,21 +1,14 @@
 #include "gatt.h"
 #include "ble_commands.h"
 #include "ble_server.h"
+#include "types.h"
+
+#define CHR_USER_DESCR 0x2901
 
 const ble_uuid128_t ble_sensor_svc_uuid;
-const ble_uuid128_t ble_sensor_chr_a_uuid;
-const ble_uuid128_t ble_sensor_chr_b_uuid;
-const ble_uuid128_t ble_sensor_chr_c_uuid;
-const ble_uuid128_t ble_sensor_chr_d_uuid;
-const ble_uuid128_t ble_sensor_chr_e_uuid;
 const struct ble_gatt_svc_def gatt_svcs[];
 
-extern uint16_t ble_sensor_chr_a_val_handle;
-extern uint16_t ble_sensor_chr_b_val_handle;
-extern uint16_t ble_sensor_chr_c_val_handle;
-extern uint16_t ble_sensor_chr_d_val_handle;
-extern uint16_t ble_sensor_chr_e_val_handle;
-extern uint16_t ble_command_chr_val_handle;
+extern ble_sensor_handles_t ble_val_handles;
 
 // Custom 128-bit UUIDs (Little Endian)
 // Service ("folder")
@@ -58,8 +51,8 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
     {.uuid = &ble_sensor_chr_a_uuid.u, // UUID ...03ff...   Part A
      .access_cb = sensor_read_cb,
      .flags = BLE_GATT_CHR_F_NOTIFY,
-     .val_handle = &ble_sensor_chr_a_val_handle,
-     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(0x2901),
+     .val_handle = &ble_val_handles.ble_sensor_chr_a_val_handle,
+     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(CHR_USER_DESCR),
                                                  .att_flags = BLE_ATT_F_READ,
                                                  .access_cb = gatt_svr_dsc_access,
                                                  .arg = "Data Part A"},
@@ -67,8 +60,8 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
     {.uuid = &ble_sensor_chr_b_uuid.u, // UUID ...04ff...   Part B
      .access_cb = sensor_read_cb,
      .flags = BLE_GATT_CHR_F_NOTIFY,
-     .val_handle = &ble_sensor_chr_b_val_handle,
-     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(0x2901),
+     .val_handle = &ble_val_handles.ble_sensor_chr_b_val_handle,
+     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(CHR_USER_DESCR),
                                                  .att_flags = BLE_ATT_F_READ,
                                                  .access_cb = gatt_svr_dsc_access,
                                                  .arg = "Data Part B"},
@@ -76,8 +69,8 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
     {.uuid = &ble_sensor_chr_c_uuid.u, // UUID ...05ff...   Part C
      .access_cb = sensor_read_cb,
      .flags = BLE_GATT_CHR_F_NOTIFY,
-     .val_handle = &ble_sensor_chr_c_val_handle,
-     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(0x2901),
+     .val_handle = &ble_val_handles.ble_sensor_chr_c_val_handle,
+     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(CHR_USER_DESCR),
                                                  .att_flags = BLE_ATT_F_READ,
                                                  .access_cb = gatt_svr_dsc_access,
                                                  .arg = "Data Part C"},
@@ -85,8 +78,8 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
     {.uuid = &ble_sensor_chr_d_uuid.u, // UUID ...07ff...   Part D
      .access_cb = sensor_read_cb,
      .flags = BLE_GATT_CHR_F_NOTIFY,
-     .val_handle = &ble_sensor_chr_d_val_handle,
-     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(0x2901),
+     .val_handle = &ble_val_handles.ble_sensor_chr_d_val_handle,
+     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(CHR_USER_DESCR),
                                                  .att_flags = BLE_ATT_F_READ,
                                                  .access_cb = gatt_svr_dsc_access,
                                                  .arg = "Data Part D"},
@@ -94,8 +87,8 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
     {.uuid = &ble_sensor_chr_e_uuid.u, // UUID ...08ff...   Part E
      .access_cb = sensor_read_cb,
      .flags = BLE_GATT_CHR_F_NOTIFY,
-     .val_handle = &ble_sensor_chr_e_val_handle,
-     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(0x2901),
+     .val_handle = &ble_val_handles.ble_sensor_chr_e_val_handle,
+     .descriptors = (struct ble_gatt_dsc_def[]){{.uuid = BLE_UUID16_DECLARE(CHR_USER_DESCR),
                                                  .att_flags = BLE_ATT_F_READ,
                                                  .access_cb = gatt_svr_dsc_access,
                                                  .arg = "Data Final"},
@@ -103,7 +96,7 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
     {.uuid = &ble_command_chr_uuid.u, // UUID ...06ff... Commands
      .access_cb = control_write_cb,
      .flags = BLE_GATT_CHR_F_WRITE,
-     .val_handle = &ble_command_chr_val_handle},
+     .val_handle = &ble_val_handles.ble_command_chr_val_handle},
     {0}};
 
 // GATT Table Definition

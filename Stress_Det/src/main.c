@@ -28,11 +28,7 @@ extern QueueHandle_t data_log_queue;
 extern RingbufHandle_t raw_data_ringbuf;
 extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
-
-extern bool enable_ppg;
-extern bool enable_gsr;
-extern bool enable_imu;
-extern bool enable_temp;
+extern device_control_t device_config;
 
 void app_main(void)
 {
@@ -69,15 +65,15 @@ void app_main(void)
     sensor_handles.max_handle = &max_handle;
 
     // Initialize I2C-sensors
-    if (enable_temp)
+    if (device_config.enable_temp)
         ESP_ERROR_CHECK(tmp117_init(bus_handle, &tmp_handle));
-    if (enable_ppg)
+    if (device_config.enable_ppg)
         ESP_ERROR_CHECK(max30101_init(bus_handle, &max_handle));
-    if (enable_imu)
+    if (device_config.enable_imu)
         ESP_ERROR_CHECK(bmi260_init(bus_handle, &bmi_handle));
 
     // Initialize SPI-sensor
-    if (enable_gsr)
+    if (device_config.enable_gsr)
         ESP_ERROR_CHECK(gsr_sensor_init(&gsr_handle));
 
     ESP_LOGI(TAG, "All sensors initialized.");
