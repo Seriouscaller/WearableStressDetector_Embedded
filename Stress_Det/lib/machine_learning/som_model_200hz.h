@@ -1,9 +1,6 @@
 #pragma once
 #include <stdio.h>
 
-#define SOM_NEURONS 400
-#define SOM_INPUT_LEN 6
-
 // HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
 // RMSSD - Visar IBI varierar på kort sikt.
 // SDNN - Hur IBI har förändrats över längre tid.

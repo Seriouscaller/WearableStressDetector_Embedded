@@ -1,5 +1,6 @@
 // ADC - Used for sampling the voltagedivider to get battery voltage
 
+#include "board_config.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
@@ -7,12 +8,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "soc/soc_caps.h"
+#include "types.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 const static char *TAG = "ADC";
 extern bool show_battery_log;
+extern device_control_t device_config;
 
 static esp_err_t adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten,
                                       adc_cali_handle_t *adc_cali_handle);
@@ -102,7 +105,7 @@ void log_battery_voltage(int *adc_raw, int *voltage_mV)
     if (battery_percentage > 100)
         battery_percentage = 100;
 
-    if (show_battery_log) {
+    if (device_config.show_battery_log) {
         ESP_LOGI(TAG, "Raw: %d Pin: %.2fV Battery: %.2fV Charge: %.2f%%", *adc_raw, pin_v, battery_v,
                  battery_percentage);
     }

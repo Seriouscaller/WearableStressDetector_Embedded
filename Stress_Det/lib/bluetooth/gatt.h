@@ -8,8 +8,3 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "types.h"
 #include <stdio.h>
-
-extern uint16_t ble_sensor_chr_a_val_handle;
-extern uint16_t ble_sensor_chr_b_val_handle;
-extern uint16_t ble_sensor_chr_c_val_handle;
-extern uint16_t ble_command_chr_val_handle;

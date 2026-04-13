@@ -15,13 +15,9 @@ static const char *TAG = "BLE";
 static uint8_t ble_addr_type;
 extern uint16_t ble_conn_handle;
 extern SemaphoreHandle_t ble_payload_mutex;
-extern ble_payload_a_t ble_payload_a;
-extern ble_payload_b_t ble_payload_b;
-extern ble_payload_b_t ble_payload_c;
-extern uint16_t ble_sensor_chr_val_handle;
-extern uint16_t ble_sensor_chr_a_val_handle;
-extern uint16_t ble_sensor_chr_b_val_handle;
-extern uint16_t ble_sensor_chr_c_val_handle;
+extern ble_payload_bulk_t ble_payloads_bulk[];
+extern ble_payload_final_t ble_payload_final;
+extern ble_sensor_handles_t ble_val_handles;
 extern const struct ble_gatt_svc_def gatt_svcs[];
 
 static void ble_app_advertise(void);
@@ -31,18 +27,31 @@ int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt
 {
     // If the PC manually asks for data, give it the latest split part
     if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        if (attr_h == ble_sensor_chr_a_val_handle) {
-            os_mbuf_append(ctxt->om, &ble_payload_a, sizeof(ble_payload_a));
-        } else if (attr_h == ble_sensor_chr_b_val_handle) {
-            os_mbuf_append(ctxt->om, &ble_payload_b, sizeof(ble_payload_b));
-        } else if (attr_h == ble_sensor_chr_c_val_handle) {
-            os_mbuf_append(ctxt->om, &ble_payload_c, sizeof(ble_payload_c));
+        if (attr_h == ble_val_handles.ble_sensor_chr_a_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[0], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_b_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[1], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_c_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[2], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_d_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[3], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_e_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payload_final, sizeof(ble_payload_final_t));
         }
 
         xSemaphoreGive(ble_payload_mutex);
         return 0;
     } else {
         ESP_LOGW(TAG, "Sensor_read_cb - Failed to take semaphore! ");
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+// Callback when phone requests the name of characteristics
+int gatt_svr_dsc_access(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (arg != NULL) {
+        return os_mbuf_append(ctxt->om, arg, strlen((char *)arg));
     }
     return BLE_ATT_ERR_UNLIKELY;
 }
