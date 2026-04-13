@@ -17,6 +17,8 @@
 #define SAMPLE_RATE 200
 #define TOTAL_SAMPLES 6000
 
+bool debug_zero_cross = false;
+
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
 static int count_zero_crossings(const float history[], uint16_t window_size);
 
@@ -34,7 +36,9 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     // Dont forget to normalize into floats!
 
     som_input_t features = {0};
-    int crossings = count_zero_crossings(SINE_WAVE_600, 596);
+    // SINE_WAVE_600 Amp:10 | 596 samples | Perfect wave | Zero-crossings: 5
+    // NOISY_SINE_WAVE_600 Amp:10 | 598 samples | jitters and spikes | Zero-crossings: 5
+    int crossings = count_zero_crossings(NOISY_SINE_WAVE_600, 598);
     return features;
 }
 
@@ -55,14 +59,24 @@ static int count_zero_crossings(const float history[], uint16_t window_size)
         if ((state == ABOVE) && (history[i] < -THRESHOLD)) {
             zero_crossings++;
             state = BELOW;
-        }
-
-        if ((state == BELOW) && (history[i] > THRESHOLD)) {
+            if (debug_zero_cross)
+                ESP_LOGI(TAG, "Above to Below at [%d] val: %.2f", i, history[i]);
+        } else if ((state == BELOW) && (history[i] > THRESHOLD)) {
             zero_crossings++;
             state = ABOVE;
+            if (debug_zero_cross)
+                ESP_LOGI(TAG, "Below to Above at [%d] val: %.2f", i, history[i]);
+        }
+        if (debug_zero_cross) {
+            if (state == ABOVE) {
+                ESP_LOGI(TAG, "Signal ABOVE 0. [%d] val: %.2f", i, history[i]);
+            } else {
+                ESP_LOGI(TAG, "Signal BELOW 0. [%d] val: %.2f", i, history[i]);
+            }
         }
     }
-    ESP_LOGI(TAG, "End Zerocrossings: %d", zero_crossings);
+    if (debug_zero_cross)
+        ESP_LOGI(TAG, "Zerocrossings found: %d", zero_crossings);
     return zero_crossings;
 }
 

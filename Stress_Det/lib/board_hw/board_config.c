@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 /* Device Configuration */
-bool show_telemetry = false;
+bool show_telemetry = true;
 bool show_logged_values = false;
 bool show_gsr_debugging = false;
 volatile bool is_sampling_active = true;
