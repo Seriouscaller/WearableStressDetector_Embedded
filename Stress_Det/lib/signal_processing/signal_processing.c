@@ -49,9 +49,13 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
         float rr_ms = (t2 - t1) / 1000.0f;
         float time_s = t2 / 1000000.0f;
 
+        ESP_LOGI(TAG, "RR: %.1f ms", rr_ms);
+
         ppg_add_rr(rr_ms, time_s);
 
-        ESP_LOGI(TAG, "IBI:%.1f", rr_ms);
+        // ESP_LOGI(TAG, "RR t1:%u t2:%u diff_us:%u", t1, t2, (t2 - t1));
+
+        // ESP_LOGI(TAG, "IBI:%.1f", rr_ms);
     }
 
     float now_s = results.timestamps_us[results.peak_count - 1] / 1000000.0f;
@@ -70,17 +74,30 @@ static void detect_peaks(raw_data_t *signal, pulse_results_t *results)
 
     results->peak_count = 0;
 
+    int last_peak_index = -1000;
+
     for (int i = 0; i < TOTAL_SAMPLES; i++) {
 
         float x = signal[i].ppg_filtered;
 
-        if (ppg_detect_peak(x)) {
+        /*if (ppg_detect_peak(x)) {
 
             results->timestamps_us[results->peak_count] = (uint32_t)i * US_PER_SAMPLE;
             results->peak_count++;
 
             if (results->peak_count >= MAX_PEAKS)
                 break;
+        }*/
+
+        if (ppg_detect_peak(x)) {
+
+            uint32_t timestamp = (uint32_t)i * US_PER_SAMPLE;
+
+            ESP_LOGI(TAG, "PEAK i:%d val:%.2f", i, x);
+
+            results->timestamps_us[results->peak_count] = timestamp;
+            results->peak_count++;
+            last_peak_index = i;
         }
     }
 }
