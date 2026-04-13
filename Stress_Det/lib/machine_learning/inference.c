@@ -1,47 +1,80 @@
 #include "inference.h"
+#include "esp_log.h"
+#include "som_model_200hz.h"
+#include <float.h>
+#include <math.h>
 #include <stdio.h>
 
-/*
-1. Feature extraction for PPG and EDA from 30 second windows
-2. Pack floats in correct order in array
-3. Normalize the data using robustscaler
-    scaled = input - median / IQR
-    (Possibility to clip data to prevent sensor spikes)
-4. Finding the BMU
-    4.1 Iterate through all 400 neurons
-    4.2 Calculate eucledian distance between scaled inputvector and neurons 6 weights
-    4.3 Neuron with smallest distance is selected.
-5. Cross reference which class the neuron belongs to.
-*/
+// Feature order in struct som_input_t and trained ML model:
+// HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
 
-typedef struct {
-    float x;
-    float y;
-} BMU_t;
+#define SOM_NEURONS 400
+#define SOM_INPUT_LEN 6
+bool debug_som = false;
 
-float robust_scaler_normalization(float *value, float median, float iqr)
+static void normalize(float *input, float *scaled_output);
+int classify_stress(som_input_t *features);
+static uint16_t get_winning_neuron(float *scaled_input);
+
+int classify_stress(som_input_t *features)
 {
-    float scaled_value = 0.0f;
+    /* Real data
+    float input[SOM_INPUT_LEN] = {features->hr,  features->hrv_rmssd, features->hrv_sdnn,
+                                  features->scr, features->tonic,     features->phasic};*/
 
-    return scaled_value;
+    /* Test data */
+    float input[SOM_INPUT_LEN] = {-11.11f, 11.11f, -11.11f, 11.11f, 11.11f, 11.11f};
+
+    // Normalization
+    float scaled_input[SOM_INPUT_LEN] = {0};
+    normalize(input, scaled_input);
+
+    uint16_t bmu_index = get_winning_neuron(scaled_input);
+    if (SOM_NEURONS - 1 < bmu_index) {
+        ESP_LOGE("Inference", "BMU index out of range!");
+        return -1;
+    }
+
+    if (debug_som) {
+        ESP_LOGI("Raw Input", "0:%f 1:%f 2:%f 3:%f 4:%f 5:%f", input[0], input[1], input[2], input[3],
+                 input[4], input[5]);
+
+        ESP_LOGI("Normalized Input", "0:%f 1:%f 2:%f 3:%f 4:%f 5:%f", scaled_input[0], scaled_input[1],
+                 scaled_input[2], scaled_input[3], scaled_input[4], scaled_input[5]);
+
+        ESP_LOGI("Results", "BMU idx: %d Class: %u", bmu_index, som_clusters[bmu_index]);
+    }
+    return (int)som_clusters[bmu_index];
 }
 
-float get_euclidean_distance(float *weights, float vector)
+/* Normalization using RobustScaler */
+static void normalize(float *input, float *scaled_output)
 {
-    float distance = 0.0f;
-
-    return distance;
+    // scaled = input - median / IQR
+    for (int i = 0; i < SOM_INPUT_LEN; i++) {
+        scaled_output[i] = (input[i] - scaler_median[i]) / scaler_iqr[i];
+    }
 }
 
-BMU_t find_BMU()
+static uint16_t get_winning_neuron(float *scaled_input)
 {
-    BMU_t bmu = {.x = 99, .y = 99};
+    uint16_t best_neuron = 0;
+    float min_distance = FLT_MAX;
 
-    return bmu;
-}
+    for (int neuron = 0; neuron < SOM_NEURONS; neuron++) {
+        float current_distance = 0;
 
-uint8_t som_model_predict(som_input_t *features)
-{
-    uint8_t results = 0;
-    return results;
+        for (int feature = 0; feature < SOM_INPUT_LEN; feature++) {
+            float diff = scaled_input[feature] - som_weights[neuron * SOM_INPUT_LEN + feature];
+            current_distance += diff * diff;
+        }
+        if (current_distance < min_distance) {
+            min_distance = current_distance;
+            best_neuron = neuron;
+        }
+    }
+    if (debug_som) {
+        ESP_LOGI("get_winner", "best neuron: %u", best_neuron);
+    }
+    return best_neuron;
 }

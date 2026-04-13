@@ -7,9 +7,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "spi_common.h"
+#include "types.h"
 
 static const char *TAG = "GSR";
-extern bool show_gsr_debugging;
+extern device_control_t device_config;
 
 #define GSR_SPI_MODE 0
 #define GSR_SPI_QUEUE_SIZE 1
@@ -42,7 +43,7 @@ esp_err_t gsr_sensor_read_raw(spi_device_handle_t handle, uint16_t *raw)
 
     esp_err_t ret = spi_device_transmit(handle, &t);
 
-    if (show_gsr_debugging)
+    if (device_config.show_gsr_debugging)
         ESP_LOGI("GSR_DEBUG", "Byte0: 0x%02X, Byte1: 0x%02X", rx_data_buffer[0], rx_data_buffer[1]);
 
     // (rx_data[0] & 0x1F) Keeps last 5 bits of first Byte
