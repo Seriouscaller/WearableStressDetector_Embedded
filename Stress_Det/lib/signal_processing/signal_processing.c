@@ -1,29 +1,31 @@
 // Extracts derived features from PPG and GSR values, such as
 // HRV and tonic, phasic values.
 
+#include "signal_processing.h"
 #include "board_config.h"
 #include "esp_log.h"
 #include "ppg_hrv.h"
 #include "ppg_peaks.h"
+#include "test_signal.h"
 #include "types.h"
 #include <stdio.h>
 
+#define MINIMUM_AMOUNT_OF_DATA (FIVE_SEC * SAMPLE_RATE)
+#define MAXIMUM_AMOUNT_OF_DATA (THIRTY_SEC * SAMPLE_RATE)
+#define FIVE_SEC 5
+#define THIRTY_SEC 30
 #define SAMPLE_RATE 200
 #define TOTAL_SAMPLES 6000
-#define US_PER_SAMPLE (1000000 / SAMPLE_RATE) // 5000uS
-#define MAX_PEAKS 100                         // Maximum expected beats in 30s
-
-typedef struct {
-    uint32_t timestamps_us[MAX_PEAKS];
-    uint32_t ibi_ms[MAX_PEAKS];
-    int peak_count;
-    float average_hr;
-} pulse_results_t;
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
-static void detect_peaks(raw_data_t *signal, pulse_results_t *results);
+static int count_zero_crossings(const float history[], uint16_t window_size);
 
-static const char *TAG = "SIGNAL_P";
+static const char *TAG = "SIGNAL_PROCESSING";
+
+enum SignalState {
+    ABOVE = 1,
+    BELOW = -1,
+};
 
 // Template for feature calculations on PPG & GSR
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
@@ -32,72 +34,91 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     // Dont forget to normalize into floats!
 
     som_input_t features = {0};
-
-    pulse_results_t results = {0};
-
-    detect_peaks(&history[0], &results);
-
-    results.average_hr = results.peak_count * 2.0f;
-
-    ppg_hrv_init();
-
-    for (int i = 1; i < results.peak_count; i++) {
-
-        uint32_t t1 = results.timestamps_us[i - 1];
-        uint32_t t2 = results.timestamps_us[i];
-
-        float rr_ms = (t2 - t1) / 1000.0f;
-        float time_s = t2 / 1000000.0f;
-
-        ESP_LOGI(TAG, "RR: %.1f ms", rr_ms);
-
-        ppg_add_rr(rr_ms, time_s);
-
-        // ESP_LOGI(TAG, "RR t1:%u t2:%u diff_us:%u", t1, t2, (t2 - t1));
-
-        // ESP_LOGI(TAG, "IBI:%.1f", rr_ms);
-    }
-
-    float now_s = results.timestamps_us[results.peak_count - 1] / 1000000.0f;
-
-    ppg_features_t hrv = ppg_compute_hrv(now_s);
-
-    ESP_LOGI(TAG, "peaks:%d bpm:%.2f hr:%.2f rmssd:%.2f sdnn:%.2f", results.peak_count, results.average_hr,
-             hrv.hr, hrv.rmssd, hrv.sdnn);
-
+    int crossings = count_zero_crossings(SINE_WAVE_600, 596);
     return features;
 }
 
-static void detect_peaks(raw_data_t *signal, pulse_results_t *results)
+static int count_zero_crossings(const float history[], uint16_t window_size)
 {
-    ppg_peaks_init();
+    float THRESHOLD = 1.0f;
+    enum SignalState state;
 
-    results->peak_count = 0;
+    if (history[0] > 0) {
+        state = ABOVE;
+    } else {
+        state = BELOW;
+    }
 
-    int last_peak_index = -1000;
+    uint16_t zero_crossings = 0;
+    for (int i = 1; i < window_size; i++) {
 
-    for (int i = 0; i < TOTAL_SAMPLES; i++) {
+        if ((state == ABOVE) && (history[i] < -THRESHOLD)) {
+            zero_crossings++;
+            state = BELOW;
+        }
 
-        float x = signal[i].ppg_filtered;
-
-        /*if (ppg_detect_peak(x)) {
-
-            results->timestamps_us[results->peak_count] = (uint32_t)i * US_PER_SAMPLE;
-            results->peak_count++;
-
-            if (results->peak_count >= MAX_PEAKS)
-                break;
-        }*/
-
-        if (ppg_detect_peak(x)) {
-
-            uint32_t timestamp = (uint32_t)i * US_PER_SAMPLE;
-
-            ESP_LOGI(TAG, "PEAK i:%d val:%.2f", i, x);
-
-            results->timestamps_us[results->peak_count] = timestamp;
-            results->peak_count++;
-            last_peak_index = i;
+        if ((state == BELOW) && (history[i] > THRESHOLD)) {
+            zero_crossings++;
+            state = ABOVE;
         }
     }
+    ESP_LOGI(TAG, "End Zerocrossings: %d", zero_crossings);
+    return zero_crossings;
 }
+
+/*
+Starting up
+ - Wait until we have atleast MINIMUM_AMOUNT_OF_DATA before we extract features. Process partial array
+ - When 30 seconds of data arrived window
+
+Data quality
+ - Calculate quality of signal. If signal is not good, skip feature extraction.
+   Using statistical measurements
+
+Time domain
+Systolic peaks = Big heartbeats
+Diastolic peak = small coupled with systolic
+
+
+Zero-crossing state - Reset logic when crossing the 0 value.
+
+Noise resilience
+ Look at three points. Keep comparing the three to each other. When the middle is the highest, peak found.
+ Noise can complicate the algorithm
+ Create a threshold of the ampliture. The beat has to be above a certain level to be counted.
+ Once a beat is detected, we blind the algorithm for a short duration to prevent double detections.
+ For example the dicrotic notch.
+
+ Search strategy
+  - Find slope
+  - Validation
+    1. value high enough?
+    2. enough time passed?
+    3. is slope rise consistent with a heartbeat peak?
+*/
+
+/*
+Signal Quality
+    Amplitude bounds
+     P - P < lowthreshold = No skin contact
+     P - P > High = Too much skin pressure
+
+    Zero-crossing Rate (Noise Detector)
+     Normal:1-4 crossings
+     High noise: 15+
+     Counting how many times the signal crosses the 0 boundrary
+
+    Standard deviation
+     If current std is much higher than rest of window, the
+     user most likely moved.
+
+    Slope consistency
+     If the change between two points is inhumanely large, flag
+     the sample as invalid.
+
+    Quality Map
+     Keep a separate array that keeps track of the quality of
+     the data in the 1 second window. A bad window can be
+     excluded from the feature extraction.
+
+*/
