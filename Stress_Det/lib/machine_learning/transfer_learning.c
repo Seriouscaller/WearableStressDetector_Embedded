@@ -1,7 +1,11 @@
 #include "transfer_learning.h"
+#include "esp_log.h"
+#include "types.h"
 #include <stdio.h>
-
 /*
+
+0. Open the file
+
 Phase 1:
 1. Validate data. Are there too much empty values?
 2. Do we have enough different data? Phase variety
@@ -28,3 +32,61 @@ Phase 5:
 9. Start inference
 
 */
+#define FILESIZE 100000
+
+typedef struct {
+    uint32_t file_size;
+    char filename[30];
+    uint32_t num_of_samples;
+    som_input_transfer_learning_t training_data[FILESIZE];
+} learning_t;
+
+const char *TAG = "TRANSFER_LEARNING";
+
+esp_err_t open_training_data(learning_t *trainer)
+{
+    uint32_t len = trainer->file_size;
+    FILE *ptr;
+    ptr = fopen("spiffs/log.bin", "rb");
+
+    if (ptr == NULL) {
+        ESP_LOGE(TAG, "open_training_data, Failed to open file!");
+        return ESP_FAIL;
+    }
+
+    som_input_transfer_learning_t sample;
+    while (fread(&sample, sizeof(som_input_transfer_learning_t), 1, ptr) == 1) {
+        trainer->training_data[trainer->num_of_samples] = sample;
+
+        if (trainer->num_of_samples >= len) {
+            ESP_LOGE(TAG, "open_training_data, Buffer full!");
+            fclose(ptr);
+            return ESP_FAIL;
+        }
+        trainer->num_of_samples++;
+    }
+    fclose(ptr);
+
+    return ESP_OK;
+}
+
+void display_data(learning_t *trainer)
+{
+    for (int i = 0; i < trainer->num_of_samples; i++) {
+        som_input_transfer_learning_t smpl = trainer->training_data[i];
+        ESP_LOGI(TAG, "[%u] hr:%.2f rmssd:%.2f sdnn:%.2f scr:%.2f ton:%.2f pha:%.2f", i, smpl.features.hr,
+                 smpl.features.hrv_rmssd, smpl.features.hrv_sdnn, smpl.features.scr, smpl.features.tonic,
+                 smpl.features.phasic);
+    }
+}
+
+// How much of data is empty?
+void validate_data()
+{
+}
+
+void start_transfer_learning(void)
+{
+    learning_t transfer_learning = {.file_size = FILESIZE, .filename = "spiffs/bin.log", .num_of_samples = 0};
+    esp_err_t res = open_training_data(&transfer_learning);
+}
