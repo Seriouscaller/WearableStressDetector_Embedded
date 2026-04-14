@@ -85,6 +85,7 @@ typedef struct {
     bool show_logged_values;
     bool show_battery_log;
     bool show_gsr_debugging;
+    bool show_spiff_status;
     bool enable_imu;
     bool enable_ppg;
     bool enable_gsr;

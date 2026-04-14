@@ -39,6 +39,7 @@ extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
 extern volatile uint8_t current_experiment_phase;
 extern som_input_transfer_learning_t transfer_learning_buffer[];
+extern device_control_t device_config;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -55,22 +56,33 @@ void sensor_sampling_task(void *pvParameters)
         if (is_sampling_active) {
 
             raw_data_t current_sample = {0};
+            bool ppg_ok = false, gsr_ok = false;
+            if (device_config.enable_ppg)
+                ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
+            if (device_config.enable_gsr)
+                gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
 
-            bool ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
-            bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
-
-            // Adds raw_data_t to static array
-            if (ppg_ok && gsr_ok) {
-                current_sample.ppg_filtered = ppg_process_sample(current_sample.ppg_raw);
-                bundle[samples_collected++] = current_sample;
-            } else {
-                ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
+            if (device_config.enable_ppg && device_config.enable_gsr) {
+                // Adds raw_data_t to static array
+                if (ppg_ok && gsr_ok) {
+                    current_sample.ppg_filtered = ppg_process_sample(current_sample.ppg_raw);
+                    bundle[samples_collected++] = current_sample;
+                } else {
+                    ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
+                }
+            } else if (device_config.enable_ppg && !device_config.enable_gsr) {
+                if (ppg_ok) {
+                    current_sample.ppg_filtered = ppg_process_sample(current_sample.ppg_raw);
+                    bundle[samples_collected++] = current_sample;
+                } else {
+                    ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
+                }
             }
 
             if (device_config.show_telemetry) {
-                printf(">ppg raw: %lu\n", current_sample.ppg_raw);
+                // printf(">ppg raw: %lu\n", current_sample.ppg_raw);
                 printf(">ppg filt:%f\n", current_sample.ppg_filtered);
-                printf(">gsr: %u\n", current_sample.gsr);
+                // printf(">gsr: %u\n", current_sample.gsr);
             }
 
             // Once 200 samples (1 sec) is accumulated, bundle is sent off to Ringbuffer
@@ -104,6 +116,7 @@ void feature_extraction_task(void *pvParameters)
 
     while (1) {
         size_t item_size;
+        static uint16_t samples_in_window = 0;
 
         // Wait here until 1 bundle of samples (200 raw_data_t) has arrived
         raw_data_t *new_samples =
@@ -120,7 +133,13 @@ void feature_extraction_task(void *pvParameters)
                    SAMPLES_PER_SECOND * sizeof(raw_data_t));
 
             // Running patriks feature extraction functions in here.
-            som_input_t features = calculate_features(history, WINDOW_SIZE);
+            if (samples_in_window < WINDOW_SIZE) {
+                samples_in_window += SAMPLES_PER_SECOND;
+            }
+
+            // Before window is full, the algorithm needs to start from the far
+            // end of the buffer
+            som_input_t features = calculate_features(history, samples_in_window);
 
             // Inference using SOM model. Outputs class as single digit
             uint8_t result = classify_stress(&features);
@@ -297,9 +316,11 @@ static void store_training_data(uint16_t *buff_index)
             fwrite(transfer_learning_buffer, sizeof(som_input_transfer_learning_t), STORAGE_BUFFER_SIZE, f);
             fclose(f);
             *buff_index = 0;
-            ESP_LOGI(TAG, "Saved %d samples to SPIFFS", STORAGE_BUFFER_SIZE);
 
-            check_spiffs_status(PARTITION_NAME);
+            if (device_config.show_spiff_status) {
+                ESP_LOGI(TAG, "Saved %d samples to SPIFFS", STORAGE_BUFFER_SIZE);
+                check_spiffs_status(PARTITION_NAME);
+            }
         }
     }
 }

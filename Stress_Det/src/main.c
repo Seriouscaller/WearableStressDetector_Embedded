@@ -55,8 +55,10 @@ void app_main(void)
 
     // Initialize I2C-bus & SPI-bus
     i2c_master_bus_handle_t bus_handle;
-    ESP_ERROR_CHECK(init_i2c(&bus_handle));
-    ESP_ERROR_CHECK(init_spi());
+    if (device_config.enable_ppg)
+        ESP_ERROR_CHECK(init_i2c(&bus_handle));
+    if (device_config.enable_gsr)
+        ESP_ERROR_CHECK(init_spi());
 
     static i2c_master_dev_handle_t tmp_handle, max_handle, bmi_handle;
     static spi_device_handle_t gsr_handle;
