@@ -1,7 +1,7 @@
 // Extracts derived features from PPG and GSR values, such as
 // HRV and tonic, phasic values.
 
-#include "signal_processing.h"
+// #include "signal_processing.h"
 #include "board_config.h"
 #include "esp_log.h"
 #include "float.h"
@@ -38,11 +38,9 @@
 //  50 samp 0.25 sec
 
 bool debug_zero_cross_algo = false;
-bool debug_valley_found = false;
-bool debug_show_heartbeat_stats = true;
 bool debug_zero_cross = false;
 bool debug_hr_features = false;
-bool debug_show_all_intervals = false;
+bool debug_show_all_intervals = true;
 bool show_new_intervals = false;
 
 enum SignalState {
@@ -79,13 +77,13 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
 static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_data, uint16_t sampling_rate);
 static void calculate_rmssd(heart_beat_stats_t *data);
 static heart_beat_stats_t calculate_rr_intervals(signal_data_t *data);
-static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size);
+static signal_data_t peak_detector(const float history[], uint16_t window_size);
 static bool is_signal_data_valid(signal_data_t *data);
 static void calculate_sdnn(heart_beat_stats_t *data, signal_data_t *s_data);
 static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_data, uint16_t sampling_rate);
-static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size);
+static signal_data_t valley_detector(const float history[], uint16_t window_size);
 
-static const char *TAG = "S_PR";
+static const char *TAG = "SIGNAL_PROCESSING";
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
@@ -128,7 +126,7 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     // NOISY_SINE_WAVE_600 Amp:10 | 598 samples  | jitters and spikes | Zero-crossings: 5
     // PPG_SIGNAL_15_SEC   Amp:40 | 1942 samples | Real filtered data | Zero-crossings: 34
     // RECORDED_PPG_SIGNAL_30_SEC Amp:20 | 6000 samples | Real filtered data | Zero-crossings: 61 | Peaks: 30
-    signal_data_t signal_data = valley_detector(history, window_size);
+    signal_data_t signal_data = valley_detector(RECORDED_PPG_SIGNAL_30_SEC, window_size);
     heart_beat_stats_t pulse_data = calculate_rr_intervals(&signal_data);
     calculate_rmssd(&pulse_data);
     calculate_heart_rate(&pulse_data, &signal_data, SAMPLE_RATE);
@@ -141,78 +139,56 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     return features;
 }
 
-#define VALID_VALLEY_HISTORY_SIZE 4
-#define ADAPTIVE_THRESHOLD_SCALING 0.6f // Valley must be 60% of the average depth
-
-static float valley_history[VALID_VALLEY_HISTORY_SIZE] = {-10.0f, -10.0f, -10.0f, -10.0f};
-static uint8_t valley_hist_idx = 0;
-static bool history_primed = false;
-
-// Helper to get the current average depth
-static float get_average_valley_depth()
+static signal_data_t valley_detector(const float history[], uint16_t window_size)
 {
-    float sum = 0;
-    for (int i = 0; i < VALID_VALLEY_HISTORY_SIZE; i++) {
-        sum += valley_history[i];
+    enum SignalState signal_position;
+
+    if (history[0] > 0) {
+        signal_position = ABOVE;
+    } else {
+        signal_position = BELOW;
     }
-    return sum / VALID_VALLEY_HISTORY_SIZE;
-}
-
-static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size)
-{
-    // Initial state based on first sample
-    enum SignalState signal_position = (history[0].ppg_filtered >= 0) ? ABOVE : BELOW;
 
     signal_data_t window_data = {0};
     window_data.local_min = FLT_MAX;
     window_data.local_max = -FLT_MAX;
 
-    int8_t threshold_test = -5;
-
     for (int i = 1; i < window_size; i++) {
 
-        // DETECTED TRANSITION: ABOVE -> BELOW (Start looking for valley)
-        if ((signal_position == ABOVE) && (history[i].ppg_filtered < -JITTER_THRESHOLD_ZERO_CROSSING)) {
-            window_data.zero_crossings++;
-            signal_position = BELOW;
-
-            // Reset search for valley
-            window_data.local_min = history[i].ppg_filtered;
-            window_data.current_min_index = i;
-        }
-
-        // DETECTED TRANSITION: BELOW -> ABOVE (Finished finding valley)
-        else if ((signal_position == BELOW) && (history[i].ppg_filtered > JITTER_THRESHOLD_ZERO_CROSSING)) {
+        // Going up! Transition from below to above. Saving the valley index
+        if ((signal_position == BELOW) && (history[i] > JITTER_THRESHOLD_ZERO_CROSSING)) {
             window_data.zero_crossings++;
             signal_position = ABOVE;
 
-            float avg_depth = get_average_valley_depth();
-            float dynamic_threshold = avg_depth * ADAPTIVE_THRESHOLD_SCALING;
-
-            if (window_data.local_min < dynamic_threshold || !history_primed) {
-                uint16_t current_v_idx = window_data.current_min_index;
+            if (window_data.local_min < -15) {
+                uint16_t current_valley = window_data.current_min_index;
 
                 bool beat_detected_too_fast =
                     (window_data.valley_count > 0) &&
-                    (current_v_idx - window_data.valley_idx[window_data.valley_count - 1] <
+                    (current_valley - window_data.valley_idx[window_data.valley_count - 1] <
                      TWO_HUNDRED_FIFTY_MS_IN_SMPLS);
 
                 if (!beat_detected_too_fast && window_data.valley_count < MAX_PEAKS - 2) {
-
-                    valley_history[valley_hist_idx] = window_data.local_min;
-                    valley_hist_idx = (valley_hist_idx + 1) % VALID_VALLEY_HISTORY_SIZE;
                     window_data.valley_idx[window_data.valley_count++] = window_data.current_min_index;
-                    history_primed = true;
-                    if (debug_valley_found)
-                        ESP_LOGI(TAG, "Adaptive Valley: Idx %d, Val %.2f (Thresh: %.2f)", current_v_idx,
-                                 window_data.local_min, dynamic_threshold);
+                    ESP_LOGI(TAG, "Found a valley at idx:[%d] Val: %.2f", window_data.current_min_index,
+                             window_data.local_min);
                 }
             }
         }
+        // Going down! Transition from above to below
+        else if ((signal_position == ABOVE) && (history[i] < -JITTER_THRESHOLD_ZERO_CROSSING)) {
+            window_data.zero_crossings++;
+            signal_position = BELOW;
 
-        // WHILE BELOW: Keep track of absolute minimum
-        if ((signal_position == BELOW) && (history[i].ppg_filtered < window_data.local_min)) {
-            window_data.local_min = history[i].ppg_filtered;
+            // Start of a new pulse
+            window_data.local_min = history[i];
+            window_data.current_min_index = i;
+        }
+
+        // Found a new local MIN. Start of a downward valley. Updates every sample from zero-level continuing
+        // down.
+        if ((signal_position == BELOW) && (history[i] < window_data.local_min)) {
+            window_data.local_min = history[i];
             window_data.current_min_index = i;
         }
     }
@@ -273,10 +249,7 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_d
         first_beat = s_data->valley_idx[0];
         last_beat = s_data->valley_idx[s_data->valley_count - 1];
         pulse_window = last_beat - first_beat;
-
         float duration_of_pulse_window_sec = (float)pulse_window / sampling_rate;
-        ESP_LOGI(TAG, "First: %u Last: %u Window: %u Duration: %.2f", first_beat, last_beat, pulse_window,
-                 duration_of_pulse_window_sec);
         hb_data->avg_hr =
             (float)((s_data->valley_count - 1) / duration_of_pulse_window_sec) * SECONDS_PER_MINUTE;
     } else {
@@ -312,7 +285,7 @@ static void calculate_sdnn(heart_beat_stats_t *hb_data, signal_data_t *s_data)
     }
 }
 
-static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
+static signal_data_t peak_detector(const float history[], uint16_t window_size)
 {
     enum SignalState signal_position;
 
@@ -323,7 +296,7 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
     } else {
         signal_position = BELOW;
     }*/
-    if (history[0].ppg_filtered > 0) {
+    if (history[0] > 0) {
         signal_position = ABOVE;
     } else {
         signal_position = BELOW;
@@ -336,7 +309,7 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
     for (int i = 1; i < window_size; i++) {
 
         // Going down! Transition from above to below
-        if ((signal_position == ABOVE) && (history[i].ppg_filtered < -JITTER_THRESHOLD_ZERO_CROSSING)) {
+        if ((signal_position == ABOVE) && (history[i] < -JITTER_THRESHOLD_ZERO_CROSSING)) {
             window_data.zero_crossings++;
             signal_position = BELOW;
 
@@ -365,18 +338,18 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
         }
 
         // Going up! Transition from below to above
-        else if ((signal_position == BELOW) && (history[i].ppg_filtered > JITTER_THRESHOLD_ZERO_CROSSING)) {
+        else if ((signal_position == BELOW) && (history[i] > JITTER_THRESHOLD_ZERO_CROSSING)) {
             window_data.zero_crossings++;
             signal_position = ABOVE;
 
             // Start of a new pulse
-            window_data.local_max = history[i].ppg_filtered;
+            window_data.local_max = history[i];
             window_data.current_max_index = i;
         }
 
         // Found a new local MAX
-        if ((signal_position == ABOVE) && (history[i].ppg_filtered > window_data.local_max)) {
-            window_data.local_max = history[i].ppg_filtered;
+        if ((signal_position == ABOVE) && (history[i] > window_data.local_max)) {
+            window_data.local_max = history[i];
             window_data.current_max_index = i;
         }
     }

@@ -6,7 +6,7 @@
 volatile bool is_sampling_active = true;
 
 device_control_t device_config = {
-    .show_telemetry = false,
+    .show_telemetry = true,
     .show_logged_values = false,
     .show_battery_log = false,
     .show_gsr_debugging = false,

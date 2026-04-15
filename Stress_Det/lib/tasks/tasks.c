@@ -201,7 +201,7 @@ void logging_task(void *pvParameters)
                 ESP_LOGW(TAG, "logging_task - Failed to take ble_payload semaphore, data lost!");
                 heap_caps_free(received_log);
             }
-            // store_training_data(&buffer_index);
+            store_training_data(&buffer_index);
         }
     }
 }
