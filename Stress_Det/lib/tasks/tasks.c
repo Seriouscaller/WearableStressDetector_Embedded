@@ -139,7 +139,7 @@ void feature_extraction_task(void *pvParameters)
 
             // Before window is full, the algorithm needs to start from the far
             // end of the buffer
-            som_input_t features = calculate_features(history, samples_in_window);
+            som_input_t features = calculate_features(history, WINDOW_SIZE);
 
             // Inference using SOM model. Outputs class as single digit
             uint8_t result = classify_stress(&features);
@@ -201,7 +201,7 @@ void logging_task(void *pvParameters)
                 ESP_LOGW(TAG, "logging_task - Failed to take ble_payload semaphore, data lost!");
                 heap_caps_free(received_log);
             }
-            store_training_data(&buffer_index);
+            // store_training_data(&buffer_index);
         }
     }
 }
