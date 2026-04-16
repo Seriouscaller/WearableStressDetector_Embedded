@@ -18,7 +18,6 @@
 #define FIVE_SEC 5
 #define THIRTY_SEC 30
 #define SAMPLE_RATE 200
-#define TOTAL_SAMPLES 6000
 #define MIN_SYSTOLIC_THRESHOLD 15
 #define MAX_PEAKS 100
 #define TOO_MUCH_TIME_BETWEEN_HEARTBEATS 300
@@ -27,6 +26,7 @@
 #define JITTER_THRESHOLD_ZERO_CROSSING 1.0f
 #define MAX_RR_INVERVAL 1500
 #define MIN_RR_INVERVAL 300
+#define MIN_VALLEY_THRESHOLD -7
 
 #define TWO_HUNDRED_FIFTY_MS_IN_SMPLS 50
 #define THREE_HUNDRED_MS_IN_SMPLS 60
@@ -134,28 +134,10 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     calculate_heart_rate(&pulse_data, &signal_data, SAMPLE_RATE);
     calculate_sdnn(&pulse_data, &signal_data);
 
-    ESP_LOGI(TAG, "Zero crossings: %u Valleys: %u Heartbeats: %.1f RMSSD: %.1f SDNN: %.1f",
-             signal_data.zero_crossings, signal_data.valley_count, pulse_data.avg_hr, pulse_data.rmssd,
-             pulse_data.sdnn);
+    ESP_LOGI(TAG, "Zero crossings: %u Valleys: %u HR: %.1f", signal_data.zero_crossings,
+             signal_data.valley_count, pulse_data.avg_hr);
 
     return features;
-}
-
-#define VALID_VALLEY_HISTORY_SIZE 4
-#define ADAPTIVE_THRESHOLD_SCALING 0.6f // Valley must be 60% of the average depth
-
-static float valley_history[VALID_VALLEY_HISTORY_SIZE] = {-10.0f, -10.0f, -10.0f, -10.0f};
-static uint8_t valley_hist_idx = 0;
-static bool history_primed = false;
-
-// Helper to get the current average depth
-static float get_average_valley_depth()
-{
-    float sum = 0;
-    for (int i = 0; i < VALID_VALLEY_HISTORY_SIZE; i++) {
-        sum += valley_history[i];
-    }
-    return sum / VALID_VALLEY_HISTORY_SIZE;
 }
 
 static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size)
@@ -166,8 +148,6 @@ static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size)
     signal_data_t window_data = {0};
     window_data.local_min = FLT_MAX;
     window_data.local_max = -FLT_MAX;
-
-    int8_t threshold_test = -5;
 
     for (int i = 1; i < window_size; i++) {
 
@@ -186,10 +166,7 @@ static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size)
             window_data.zero_crossings++;
             signal_position = ABOVE;
 
-            float avg_depth = get_average_valley_depth();
-            float dynamic_threshold = avg_depth * ADAPTIVE_THRESHOLD_SCALING;
-
-            if (window_data.local_min < dynamic_threshold || !history_primed) {
+            if (window_data.local_min < MIN_VALLEY_THRESHOLD) {
                 uint16_t current_v_idx = window_data.current_min_index;
 
                 bool beat_detected_too_fast =
@@ -199,13 +176,11 @@ static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size)
 
                 if (!beat_detected_too_fast && window_data.valley_count < MAX_PEAKS - 2) {
 
-                    valley_history[valley_hist_idx] = window_data.local_min;
-                    valley_hist_idx = (valley_hist_idx + 1) % VALID_VALLEY_HISTORY_SIZE;
                     window_data.valley_idx[window_data.valley_count++] = window_data.current_min_index;
-                    history_primed = true;
                     if (debug_valley_found)
-                        ESP_LOGI(TAG, "Adaptive Valley: Idx %d, Val %.2f (Thresh: %.2f)", current_v_idx,
-                                 window_data.local_min, dynamic_threshold);
+                        ESP_LOGI(TAG, "FOUND! Valley: Idx %d, Val %.2f", current_v_idx,
+                                 window_data.local_min);
+                    window_data.local_min = FLT_MAX;
                 }
             }
         }
@@ -223,8 +198,6 @@ static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size)
 static heart_beat_stats_t calculate_rr_intervals(signal_data_t *data)
 {
     heart_beat_stats_t pulse_data = {0};
-    // pulse_data.avg_hr = 0;
-    // memset(pulse_data.rr_intervals, 0, sizeof(pulse_data.rr_intervals));
 
     uint16_t diff_idx = 0;
     // RR = (idx(i) - idx(i-1)) * (1000 / smplrate)
@@ -268,17 +241,18 @@ static void calculate_rmssd(heart_beat_stats_t *data)
 static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_data, uint16_t sampling_rate)
 {
 
-    uint16_t first_beat = 0, last_beat = 0, pulse_window = 0;
+    uint16_t first_beat = 0, last_beat = 0, pulse_window_samples = 0;
     if (s_data->valley_count > 2) {
         first_beat = s_data->valley_idx[0];
         last_beat = s_data->valley_idx[s_data->valley_count - 1];
-        pulse_window = last_beat - first_beat;
+        pulse_window_samples = last_beat - first_beat;
 
-        float duration_of_pulse_window_sec = (float)pulse_window / sampling_rate;
-        ESP_LOGI(TAG, "First: %u Last: %u Window: %u Duration: %.2f", first_beat, last_beat, pulse_window,
-                 duration_of_pulse_window_sec);
-        hb_data->avg_hr =
-            (float)((s_data->valley_count - 1) / duration_of_pulse_window_sec) * SECONDS_PER_MINUTE;
+        float duration_sec = (float)pulse_window_samples / (float)sampling_rate;
+        float intervals = (float)(s_data->valley_count);
+
+        ESP_LOGI(TAG, "First: %u Last: %u Window: %u Duration: %.2f", first_beat, last_beat,
+                 pulse_window_samples, duration_sec);
+        hb_data->avg_hr = (float)(intervals / duration_sec) * SECONDS_PER_MINUTE;
     } else {
         ESP_LOGI(TAG, "Not enough data for heartrate calculations!");
     }
