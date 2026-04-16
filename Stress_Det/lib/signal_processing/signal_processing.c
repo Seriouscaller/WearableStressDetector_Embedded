@@ -33,6 +33,10 @@
 #define FIVE_HUNDRED_MS_IN_SMPLS 100
 #define SECONDS_PER_MINUTE 60.0f
 
+#define PEAK_AVG_ALPHA 0.1f
+#define THRESHOLD_RATIO 0.5F
+#define MIN_DYNAMIC_THRESHOLD 1.5f
+
 // 200 samples = 1 sec
 // 100 samp 0.5 sec
 //  50 samp 0.25 sec
@@ -128,14 +132,15 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     // NOISY_SINE_WAVE_600 Amp:10 | 598 samples  | jitters and spikes | Zero-crossings: 5
     // PPG_SIGNAL_15_SEC   Amp:40 | 1942 samples | Real filtered data | Zero-crossings: 34
     // RECORDED_PPG_SIGNAL_30_SEC Amp:20 | 6000 samples | Real filtered data | Zero-crossings: 61 | Peaks: 30
-    signal_data_t signal_data = valley_detector(history, window_size);
-    heart_beat_stats_t pulse_data = calculate_rr_intervals(&signal_data);
+    // signal_data_t signal_data = valley_detector(history, window_size);
+    signal_data_t peak_data = peak_detector(history, window_size);
+    heart_beat_stats_t pulse_data = calculate_rr_intervals(&peak_data);
     calculate_rmssd(&pulse_data);
-    calculate_heart_rate(&pulse_data, &signal_data, SAMPLE_RATE);
-    calculate_sdnn(&pulse_data, &signal_data);
+    calculate_heart_rate(&pulse_data, &peak_data, SAMPLE_RATE);
+    calculate_sdnn(&pulse_data, &peak_data);
 
-    ESP_LOGI(TAG, "Zero crossings: %u Valleys: %u HR: %.1f", signal_data.zero_crossings,
-             signal_data.valley_count, pulse_data.avg_hr);
+    ESP_LOGI(TAG, "Zero crossings: %u Peaks: %u HR: %.1f", peak_data.zero_crossings, peak_data.valley_count,
+             pulse_data.avg_hr);
 
     return features;
 }
@@ -242,13 +247,13 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_d
 {
 
     uint16_t first_beat = 0, last_beat = 0, pulse_window_samples = 0;
-    if (s_data->valley_count > 2) {
-        first_beat = s_data->valley_idx[0];
-        last_beat = s_data->valley_idx[s_data->valley_count - 1];
+    if (s_data->peaks_count >= 2) {
+        first_beat = s_data->peaks_idx[0];
+        last_beat = s_data->peaks_idx[s_data->peaks_count - 1];
         pulse_window_samples = last_beat - first_beat;
 
         float duration_sec = (float)pulse_window_samples / (float)sampling_rate;
-        float intervals = (float)(s_data->valley_count);
+        float intervals = (float)(s_data->peaks_count - 1);
 
         ESP_LOGI(TAG, "First: %u Last: %u Window: %u Duration: %.2f", first_beat, last_beat,
                  pulse_window_samples, duration_sec);
@@ -260,7 +265,7 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_d
 
 static void calculate_sdnn(heart_beat_stats_t *hb_data, signal_data_t *s_data)
 {
-    uint8_t intervals = s_data->valley_count - 1;
+    uint8_t intervals = s_data->peaks_count - 1;
     if (intervals < 2) {
         printf("Not enough peaks to calculate sdnn!");
         return;
@@ -285,18 +290,16 @@ static void calculate_sdnn(heart_beat_stats_t *hb_data, signal_data_t *s_data)
         hb_data->sdnn = sqrt(sum_sq_diff / intervals);
     }
 }
-
 static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
 {
     enum SignalState signal_position;
 
-    /*
-    // Initialization of SignalState. Is the start of the signal above or below 0-level
-    if (history[0].ppg_filtered > 0) {
-        signal_position = ABOVE;
-    } else {
-        signal_position = BELOW;
-    }*/
+    // Adaptive threshold start values
+    // ppg_filter + normalization ppg_processing makes values +- 2 to +- 10
+    float running_peak_avg = 5.0f;
+    float dynamic_threshold = 2.0f;
+
+    // Init state
     if (history[0].ppg_filtered > 0) {
         signal_position = ABOVE;
     } else {
@@ -309,48 +312,74 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
 
     for (int i = 1; i < window_size; i++) {
 
-        // Going down! Transition from above to below
-        if ((signal_position == ABOVE) && (history[i].ppg_filtered < -JITTER_THRESHOLD_ZERO_CROSSING)) {
+        float sample = history[i].ppg_filtered;
+
+        // ABOVE → BELOW peak done.
+        // jitterTH maybe change to 0.5 if signal around 2
+
+        if ((signal_position == ABOVE) && (sample < -JITTER_THRESHOLD_ZERO_CROSSING)) {
+
             window_data.zero_crossings++;
             signal_position = BELOW;
 
-            // Went below 0-line. Completed a "pulse peak".
-            // Check if it was a systolic peak, or dicrotic notch
-            if (window_data.local_max > MIN_SYSTOLIC_THRESHOLD) {
+            uint16_t current_peak = window_data.current_max_index;
 
-                uint16_t current_peak = window_data.current_max_index;
-                // Compare current peak with last recorded peak
-                // Give atleast TWO_HUNDRED_FIFTY_MS_IN_SMPLS time to pass
-                // until we record the next peak
+            // Check threshold, big enough to be a peak.
+            if (window_data.local_max > dynamic_threshold) {
+
+                // 2. timing (refractory period)
                 bool beat_detected_too_fast =
                     (window_data.peaks_count > 0) &&
                     (current_peak - window_data.peaks_idx[window_data.peaks_count - 1] <
                      TWO_HUNDRED_FIFTY_MS_IN_SMPLS);
 
+                // 3. Peak found.
                 if (!beat_detected_too_fast && window_data.peaks_count < MAX_PEAKS - 2) {
-                    window_data.peaks_idx[window_data.peaks_count++] = window_data.current_max_index;
-                    ESP_LOGI(TAG, "Local max index: %u Value: %.2f", window_data.current_max_index,
-                             window_data.local_max);
+
+                    // Save peak index
+                    window_data.peaks_idx[window_data.peaks_count++] = current_peak;
+
+                    ESP_LOGI(TAG, "Peak idx: %u Value: %.2f Threshold: %.2f", current_peak,
+                             window_data.local_max, dynamic_threshold);
+
+                    // Exponential Moving Average (EMA).
+                    // 0.9 of old value + 0.1 of new value (current peak) moving towards the new peak value
+                    // over time.
+                    running_peak_avg =
+                        (1.0f - PEAK_AVG_ALPHA) * running_peak_avg + PEAK_AVG_ALPHA * window_data.local_max;
+
+                    dynamic_threshold = THRESHOLD_RATIO * running_peak_avg;
+
+                    // Safety check to prevent threshold from getting too low.
+                    // DTH lower than 1.5 gives DTH 2
+                    if (dynamic_threshold < MIN_DYNAMIC_THRESHOLD) {
+                        dynamic_threshold = MIN_DYNAMIC_THRESHOLD;
+                    }
+
                 } else if (beat_detected_too_fast) {
-                    ESP_LOGI(TAG, "Double peaks found! Index: %u", current_peak);
                     window_data.double_peaks++;
+                    ESP_LOGI(TAG, "Double peak ignored at idx: %u", current_peak);
                 }
             }
         }
 
-        // Going up! Transition from below to above
-        else if ((signal_position == BELOW) && (history[i].ppg_filtered > JITTER_THRESHOLD_ZERO_CROSSING)) {
+        // FALL: BELOW → ABOVE (start new peak)
+
+        else if ((signal_position == BELOW) && (sample > JITTER_THRESHOLD_ZERO_CROSSING)) {
+
             window_data.zero_crossings++;
             signal_position = ABOVE;
 
-            // Start of a new pulse
-            window_data.local_max = history[i].ppg_filtered;
+            // Start tracking peak
+            window_data.local_max = sample;
             window_data.current_max_index = i;
         }
 
-        // Found a new local MAX
-        if ((signal_position == ABOVE) && (history[i].ppg_filtered > window_data.local_max)) {
-            window_data.local_max = history[i].ppg_filtered;
+        // Save MAX
+
+        if ((signal_position == ABOVE) && (sample > window_data.local_max)) {
+
+            window_data.local_max = sample;
             window_data.current_max_index = i;
         }
     }
