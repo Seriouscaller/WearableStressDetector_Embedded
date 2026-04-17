@@ -73,6 +73,7 @@ void sensor_sampling_task(void *pvParameters)
             } else if (device_config.enable_ppg && !device_config.enable_gsr) {
                 if (ppg_ok) {
                     current_sample.ppg_filtered = ppg_process_sample(current_sample.ppg_raw);
+                    current_sample.time_stamp = esp_timer_get_time();
                     bundle[samples_collected++] = current_sample;
                 } else {
                     ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");

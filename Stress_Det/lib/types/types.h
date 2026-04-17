@@ -9,6 +9,7 @@
 #define BLE_NUM_OF_SAMPLES_PER_PAYLOAD 40
 
 typedef struct __attribute__((packed)) {
+    int64_t time_stamp; // 8B
     uint32_t ppg_raw;   // 4B
     float ppg_filtered; // 4B
     uint16_t gsr;       // 2B
