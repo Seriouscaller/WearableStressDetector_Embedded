@@ -11,6 +11,7 @@
 #include "gsr.h"
 #include "inference.h"
 #include "max30101.h"
+#include "ppg_filter_2.h"
 #include "ppg_processing.h"
 #include "shared_variables.h"
 #include "signal_processing.h"
@@ -18,6 +19,7 @@
 #include <stdio.h>
 
 #define STORAGE_BUFFER_SIZE 10
+#define PRINT_EVERY_N_SAMPLE 5
 
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
 static void collect_training_data(complete_log_t *log, uint16_t *buff_index);
@@ -33,6 +35,7 @@ extern bool is_sampling_active;
 extern device_control_t device_config;
 extern RingbufHandle_t raw_data_ringbuf;
 extern QueueHandle_t data_log_queue;
+extern QueueHandle_t telemetry_queue;
 extern ble_payload_bulk_t ble_payloads_bulk[];
 extern ble_payload_final_t ble_payload_final;
 extern SemaphoreHandle_t ble_payload_mutex;
@@ -46,53 +49,41 @@ void sensor_sampling_task(void *pvParameters)
     sensor_handles_t *sensors = (sensor_handles_t *)pvParameters;
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(PPG_AND_GSR_SAMPLING_RATE_IN_MS);
-    static raw_data_t bundle[PPG_SAMPLE_RATE]; // Collects 200 ppg & gsr samples in array
+    static raw_data_t bundle[PPG_SAMPLE_RATE];
     int samples_collected = 0;
 
     ppg_processing_init();
-    eda_processing_init();
 
     while (1) {
+        uint8_t samples_available = 0;
         if (is_sampling_active) {
 
             raw_data_t current_sample = {0};
-            bool ppg_ok = false, gsr_ok = false;
-            if (device_config.enable_ppg)
-                ppg_ok = (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
-            if (device_config.enable_gsr)
-                gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
 
-            if (device_config.enable_ppg && device_config.enable_gsr) {
-                // Adds raw_data_t to static array
-                if (ppg_ok && gsr_ok) {
-                    current_sample.ppg_filtered = ppg_process_sample(current_sample.ppg_raw);
-                    bundle[samples_collected++] = current_sample;
-                } else {
-                    ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
-                }
-            } else if (device_config.enable_ppg && !device_config.enable_gsr) {
-                if (ppg_ok) {
-                    current_sample.ppg_filtered = ppg_process_sample(current_sample.ppg_raw);
-                    bundle[samples_collected++] = current_sample;
-                } else {
-                    ESP_LOGW(TAG, "sensor_sampling_task - Skipped reading sensors!");
+            if (max30101_get_fifo_count(*sensors->max_handle, &samples_available) == ESP_OK) {
+                for (int i = 0; i < samples_available; i++) {
+                    if (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK) {
+                        current_sample.ppg_filtered = ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
+                        current_sample.time_stamp = esp_timer_get_time();
+                        bundle[samples_collected++] = current_sample;
+
+                        if (device_config.show_telemetry && samples_collected % PRINT_EVERY_N_SAMPLE == 0) {
+                            if (xQueueSend(telemetry_queue, &current_sample, 0) != pdTRUE) {
+                                ESP_LOGE(TAG, "show_telemetry - Failed to send to queue!");
+                            }
+                        }
+                    }
                 }
             }
+        }
 
-            if (device_config.show_telemetry) {
-                // printf(">ppg raw: %lu\n", current_sample.ppg_raw);
-                printf(">ppg filt:%f\n", current_sample.ppg_filtered);
-                // printf(">gsr: %u\n", current_sample.gsr);
-            }
-
-            // Once 200 samples (1 sec) is accumulated, bundle is sent off to Ringbuffer
-            if (samples_collected >= PPG_SAMPLE_RATE) {
-                if (xRingbufferSend(raw_data_ringbuf, bundle, sizeof(bundle), 0) == pdTRUE) {
-                    samples_collected = 0;
-                } else {
-                    ESP_LOGE(TAG, "sensor_sampling_task - Ringbuffer full!");
-                    samples_collected = 0;
-                }
+        // Once 200 samples (1 sec) is accumulated, bundle is sent off to Ringbuffer
+        if (samples_collected >= PPG_SAMPLE_RATE) {
+            if (xRingbufferSend(raw_data_ringbuf, bundle, sizeof(bundle), 0) == pdTRUE) {
+                samples_collected = 0;
+            } else {
+                ESP_LOGE(TAG, "sensor_sampling_task - Ringbuffer full!");
+                samples_collected = 0;
             }
         }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -132,13 +123,10 @@ void feature_extraction_task(void *pvParameters)
             memcpy(&history[WINDOW_SIZE - SAMPLES_PER_SECOND], new_samples,
                    SAMPLES_PER_SECOND * sizeof(raw_data_t));
 
-            // Running patriks feature extraction functions in here.
             if (samples_in_window < WINDOW_SIZE) {
                 samples_in_window += SAMPLES_PER_SECOND;
             }
 
-            // Before window is full, the algorithm needs to start from the far
-            // end of the buffer
             som_input_t features = calculate_features(history, WINDOW_SIZE);
 
             // Inference using SOM model. Outputs class as single digit
@@ -191,7 +179,6 @@ void logging_task(void *pvParameters)
             }
 
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-
                 fragment_ble_payloads(received_log);
                 xSemaphoreGive(ble_payload_mutex);
                 collect_training_data(received_log, &buffer_index);
@@ -213,7 +200,7 @@ void ble_update_task(void *pvParameters)
     uint16_t handles[] = {
         ble_val_handles.ble_sensor_chr_a_val_handle, ble_val_handles.ble_sensor_chr_b_val_handle,
         ble_val_handles.ble_sensor_chr_c_val_handle, ble_val_handles.ble_sensor_chr_d_val_handle,
-        ble_val_handles.ble_sensor_chr_e_val_handle};
+        ble_val_handles.ble_sensor_chr_e_val_handle, ble_val_handles.ble_sensor_chr_f_val_handle};
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
 
@@ -224,10 +211,10 @@ void ble_update_task(void *pvParameters)
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
 
                 // Send Complete log 2042B. Split into 400B payloads
-                for (int i = 0; i < 4; i++) {
+                for (int i = 0; i < 6; i++) {
                     send_ble_payload(handles[i], &ble_payloads_bulk[i], sizeof(ble_payload_bulk_t));
                 }
-                send_ble_payload(handles[4], &ble_payload_final, sizeof(ble_payload_final_t));
+                send_ble_payload(handles[6], &ble_payload_final, sizeof(ble_payload_final_t));
 
                 xSemaphoreGive(ble_payload_mutex);
             } else {
@@ -260,8 +247,8 @@ static void fragment_ble_payloads(complete_log_t *log)
 {
     uint32_t sync_time = log->timestamp;
 
-    // Filling 4 bulk payloads
-    for (int i = 0; i < 4; i++) {
+    // Filling 6 bulk payloads
+    for (int i = 0; i < BLE_NUM_OF_BULK_PAYLOADS; i++) {
         ble_payloads_bulk[i].timestamp = sync_time;
         memcpy(ble_payloads_bulk[i].raw_samples, &log->raw_samples[i * BLE_NUM_OF_SAMPLES_PER_PAYLOAD],
                sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
@@ -269,7 +256,8 @@ static void fragment_ble_payloads(complete_log_t *log)
 
     // Filling Final
     ble_payload_final.timestamp = sync_time;
-    memcpy(ble_payload_final.raw_samples, &log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * 4],
+    memcpy(ble_payload_final.raw_samples,
+           &log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * BLE_NUM_OF_BULK_PAYLOADS],
            sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
 
     ble_payload_final.hr = log->features.hr;
@@ -337,5 +325,16 @@ static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_sa
         xSemaphoreGive(experiment_phase_mutex);
     } else {
         ESP_LOGW(TAG, "feature_extraction_task - Failed to take semaphore. Exp. Phase not set!");
+    }
+}
+
+void telemetry_task(void *pvParameters)
+{
+    raw_data_t sample;
+    while (1) {
+        if (xQueueReceive(telemetry_queue, &sample, portMAX_DELAY)) {
+            printf(">Raw:%lu\n", sample.ppg_raw);
+            printf(">Filt:%.2f\n", sample.ppg_filtered);
+        }
     }
 }

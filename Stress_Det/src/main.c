@@ -25,6 +25,7 @@
 
 static const char *TAG = "MAIN";
 extern QueueHandle_t data_log_queue;
+extern QueueHandle_t telemetry_queue;
 extern RingbufHandle_t raw_data_ringbuf;
 extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
@@ -50,6 +51,12 @@ void app_main(void)
     data_log_queue = xQueueCreate(5, sizeof(complete_log_t *));
     if (data_log_queue == NULL) {
         ESP_LOGE(TAG, "data_log_queue, failed to create Queue!");
+        return;
+    }
+
+    telemetry_queue = xQueueCreate(20, sizeof(raw_data_t));
+    if (telemetry_queue == NULL) {
+        ESP_LOGE(TAG, "telemetry_queue, failed to create Queue!");
         return;
     }
 
@@ -82,14 +89,16 @@ void app_main(void)
 
     // BLE
     init_ble_server();
-    xTaskCreatePinnedToCore(ble_update_task, "ble_upd", 4096, NULL, 5, NULL, 0);
+    xTaskCreatePinnedToCore(ble_update_task, "ble_upd", 4 * 1024, NULL, 5, NULL, 0);
 
     // Pipeline Tasks
-    xTaskCreatePinnedToCore(sensor_sampling_task, "sampl", 8192, &sensor_handles, 10, NULL, 1);
-    xTaskCreatePinnedToCore(feature_extraction_task, "feats", 4096, NULL, 9, NULL, 1);
-    xTaskCreatePinnedToCore(logging_task, "log", 8192, NULL, 6, NULL, 1);
+    xTaskCreatePinnedToCore(sensor_sampling_task, "sampl", 8 * 1024, &sensor_handles, 10, NULL, 1);
+    xTaskCreatePinnedToCore(feature_extraction_task, "feats", 4 * 1024, NULL, 9, NULL, 1);
+    xTaskCreatePinnedToCore(logging_task, "log", 8 * 1024, NULL, 6, NULL, 1);
 
-    xTaskCreatePinnedToCore(battery_task, "battery", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(telemetry_task, "telem", 4 * 1024, NULL, 2, NULL, 1);
+
+    // xTaskCreatePinnedToCore(battery_task, "battery", 4096, NULL, 1, NULL, 1);
 
     return;
 }
