@@ -12,7 +12,7 @@ device_control_t device_config = {
     .show_gsr_debugging = false,
     .show_spiff_status = false,
     .enable_ppg = true,
-    .enable_gsr = false,
+    .enable_gsr = true,
     .enable_imu = false,
     .enable_temp = false,
 };

@@ -97,8 +97,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(logging_task, "log", 8 * 1024, NULL, 6, NULL, 1);
 
     xTaskCreatePinnedToCore(telemetry_task, "telem", 4 * 1024, NULL, 2, NULL, 1);
-
-    // xTaskCreatePinnedToCore(battery_task, "battery", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(battery_task, "battery", 4096, NULL, 1, NULL, 1);
 
     return;
 }

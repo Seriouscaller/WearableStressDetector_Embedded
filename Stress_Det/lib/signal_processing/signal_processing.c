@@ -14,6 +14,7 @@
 #include <string.h>
 
 bool debug_show_heartbeat_stats = true;
+debug_show_first_last_peaks = false;
 static const char *TAG = "S_PR";
 
 #define MINIMUM_AMOUNT_OF_DATA (FIVE_SEC * SAMPLE_RATE)
@@ -91,11 +92,9 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     calculate_sdnn(&heart_beat_data, &peak_data);
     calculate_rmssd(&heart_beat_data);
 
-    ESP_LOGI(TAG, "Peaks: %u HR: %.1f SDNN: %.1f RMSSD: %.1f", peak_data.peaks_count, heart_beat_data.avg_hr,
-             heart_beat_data.sdnn, heart_beat_data.rmssd);
-
-    printf(">Peaks:%u\n>HR:%.0f\n>SDNN:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count, heart_beat_data.avg_hr,
-           heart_beat_data.sdnn, heart_beat_data.rmssd);
+    if (debug_show_heartbeat_stats)
+        printf(">Peaks:%u\n>HR:%.0f\n>SDNN:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count,
+               heart_beat_data.avg_hr, heart_beat_data.sdnn, heart_beat_data.rmssd);
 
     features.hr = heart_beat_data.avg_hr;
     features.hrv_sdnn = heart_beat_data.sdnn;
@@ -209,8 +208,9 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_dat
         uint16_t intervals = (s_data->peaks_count - 1);
 
         hb_data->avg_hr = (float)(intervals / duration_sec) * SECONDS_PER_MINUTE;
-        ESP_LOGI(TAG, "First: %u Last: %u Duration: %.2f Heartbeat: %.1f", first_beat_idx, last_beat_idx,
-                 duration_sec, hb_data->avg_hr);
+        if (debug_show_first_last_peaks)
+            ESP_LOGI(TAG, "First: %u Last: %u Duration: %.2f Heartbeat: %.1f", first_beat_idx, last_beat_idx,
+                     duration_sec, hb_data->avg_hr);
     }
 }
 
