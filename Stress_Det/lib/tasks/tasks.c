@@ -19,7 +19,7 @@
 #include <stdio.h>
 
 #define STORAGE_BUFFER_SIZE 10
-#define PRINT_EVERY_N_SAMPLE 5
+#define PRINT_EVERY_N_SAMPLE 10
 
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
 static void collect_training_data(complete_log_t *log, uint16_t *buff_index);

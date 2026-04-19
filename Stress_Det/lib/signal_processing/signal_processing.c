@@ -97,6 +97,10 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     printf(">Peaks:%u\n>HR:%.0f\n>SDNN:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count, heart_beat_data.avg_hr,
            heart_beat_data.sdnn, heart_beat_data.rmssd);
 
+    features.hr = heart_beat_data.avg_hr;
+    features.hrv_sdnn = heart_beat_data.sdnn;
+    features.hrv_rmssd = heart_beat_data.rmssd;
+
     return features;
 }
 

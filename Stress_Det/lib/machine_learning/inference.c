@@ -9,8 +9,8 @@
 // HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
 
 #define SOM_NEURONS 400
-#define SOM_INPUT_LEN 6
-bool debug_som = false;
+#define SOM_INPUT_LEN 3
+bool debug_som = true;
 
 static void normalize(float *input, float *scaled_output);
 int classify_stress(som_input_t *features);
@@ -23,7 +23,9 @@ int classify_stress(som_input_t *features)
                                   features->scr, features->tonic,     features->phasic};*/
 
     /* Test data */
-    float input[SOM_INPUT_LEN] = {-11.11f, 11.11f, -11.11f, 11.11f, 11.11f, 11.11f};
+    // float input[SOM_INPUT_LEN] = {-11.11f, 11.11f, -11.11f, 11.11f, 11.11f, 11.11f};
+
+    float input[SOM_INPUT_LEN] = {features->hr, features->hrv_rmssd, features->hrv_sdnn};
 
     // Normalization
     float scaled_input[SOM_INPUT_LEN] = {0};
@@ -36,13 +38,9 @@ int classify_stress(som_input_t *features)
     }
 
     if (debug_som) {
-        ESP_LOGI("Raw Input", "0:%f 1:%f 2:%f 3:%f 4:%f 5:%f", input[0], input[1], input[2], input[3],
-                 input[4], input[5]);
-
-        ESP_LOGI("Normalized Input", "0:%f 1:%f 2:%f 3:%f 4:%f 5:%f", scaled_input[0], scaled_input[1],
-                 scaled_input[2], scaled_input[3], scaled_input[4], scaled_input[5]);
-
-        ESP_LOGI("Results", "BMU idx: %d Class: %u", bmu_index, som_clusters[bmu_index]);
+        // ESP_LOGI("Raw Input", "0:%f 1:%f 2:%f ", input[0], input[1], input[2]);
+        // ESP_LOGI("Normalized Input", "0:%f 1:%f 2:%f ", scaled_input[0], scaled_input[1], scaled_input[2]);
+        ESP_LOGI("Results", "BMU idx: %u Class: %u", bmu_index, som_clusters[bmu_index]);
     }
     return (int)som_clusters[bmu_index];
 }
@@ -72,9 +70,6 @@ static uint16_t get_winning_neuron(float *scaled_input)
             min_distance = current_distance;
             best_neuron = neuron;
         }
-    }
-    if (debug_som) {
-        ESP_LOGI("get_winner", "best neuron: %u", best_neuron);
     }
     return best_neuron;
 }
