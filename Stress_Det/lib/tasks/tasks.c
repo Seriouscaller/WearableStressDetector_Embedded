@@ -200,7 +200,9 @@ void ble_update_task(void *pvParameters)
     uint16_t handles[] = {
         ble_val_handles.ble_sensor_chr_a_val_handle, ble_val_handles.ble_sensor_chr_b_val_handle,
         ble_val_handles.ble_sensor_chr_c_val_handle, ble_val_handles.ble_sensor_chr_d_val_handle,
-        ble_val_handles.ble_sensor_chr_e_val_handle, ble_val_handles.ble_sensor_chr_f_val_handle};
+        ble_val_handles.ble_sensor_chr_e_val_handle, ble_val_handles.ble_sensor_chr_f_val_handle,
+        ble_val_handles.ble_sensor_chr_g_val_handle, ble_val_handles.ble_sensor_chr_h_val_handle,
+        ble_val_handles.ble_sensor_chr_i_val_handle};
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS));
 
@@ -211,10 +213,12 @@ void ble_update_task(void *pvParameters)
             if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
 
                 // Send Complete log 2042B. Split into 400B payloads
-                for (int i = 0; i < 6; i++) {
+                for (int i = 0; i < BLE_NUM_OF_BULK_PAYLOADS; i++) {
                     send_ble_payload(handles[i], &ble_payloads_bulk[i], sizeof(ble_payload_bulk_t));
+                    vTaskDelay(pdMS_TO_TICKS(10));
                 }
-                send_ble_payload(handles[6], &ble_payload_final, sizeof(ble_payload_final_t));
+                send_ble_payload(handles[BLE_NUM_OF_BULK_PAYLOADS], &ble_payload_final,
+                                 sizeof(ble_payload_final_t));
 
                 xSemaphoreGive(ble_payload_mutex);
             } else {
@@ -247,7 +251,7 @@ static void fragment_ble_payloads(complete_log_t *log)
 {
     uint32_t sync_time = log->timestamp;
 
-    // Filling 6 bulk payloads
+    // Filling 8 bulk payloads
     for (int i = 0; i < BLE_NUM_OF_BULK_PAYLOADS; i++) {
         ble_payloads_bulk[i].timestamp = sync_time;
         memcpy(ble_payloads_bulk[i].raw_samples, &log->raw_samples[i * BLE_NUM_OF_SAMPLES_PER_PAYLOAD],
@@ -258,7 +262,7 @@ static void fragment_ble_payloads(complete_log_t *log)
     ble_payload_final.timestamp = sync_time;
     memcpy(ble_payload_final.raw_samples,
            &log->raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD * BLE_NUM_OF_BULK_PAYLOADS],
-           sizeof(raw_data_t) * BLE_NUM_OF_SAMPLES_PER_PAYLOAD);
+           sizeof(raw_data_t) * 8);
 
     ble_payload_final.hr = log->features.hr;
     ble_payload_final.rmssd = log->features.hrv_rmssd;

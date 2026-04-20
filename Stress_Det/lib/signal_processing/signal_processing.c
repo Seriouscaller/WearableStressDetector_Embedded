@@ -14,7 +14,7 @@
 #include <string.h>
 
 bool debug_show_heartbeat_stats = true;
-debug_show_first_last_peaks = false;
+bool debug_show_first_last_peaks = false;
 static const char *TAG = "S_PR";
 
 #define MINIMUM_AMOUNT_OF_DATA (FIVE_SEC * SAMPLE_RATE)

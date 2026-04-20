@@ -6,8 +6,8 @@
 #include "gatt.h"
 #include <stdio.h>
 
-#define BLE_NUM_OF_SAMPLES_PER_PAYLOAD 30
-#define BLE_NUM_OF_BULK_PAYLOADS 6
+#define BLE_NUM_OF_SAMPLES_PER_PAYLOAD 24
+#define BLE_NUM_OF_BULK_PAYLOADS 8
 
 typedef struct __attribute__((packed)) {
     int64_t time_stamp; // 8B
@@ -52,12 +52,12 @@ typedef struct __attribute__((packed)) {
 } ble_payload_bulk_t;                                       // Total: 424B
 
 typedef struct __attribute__((packed)) {
-    uint32_t timestamp;                                     // 4 Bytes
-    raw_data_t raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD]; // Last 30 samples (420 bytes)
-    float hr, rmssd, sdnn, scr, tonic, phasic;              // 4 * 6 = 24 Bytes
-    uint8_t stress_class;                                   // (1 byte)
-    uint8_t experiment_phase;                               // (1 byte)
-} ble_payload_final_t;                                      // Total: 450 bytes
+    uint32_t timestamp;                        // 4 Bytes
+    raw_data_t raw_samples[8];                 // Last 8 samples (420 bytes)
+    float hr, rmssd, sdnn, scr, tonic, phasic; // 4 * 6 = 24 Bytes
+    uint8_t stress_class;                      // (1 byte)
+    uint8_t experiment_phase;                  // (1 byte)
+} ble_payload_final_t;                         // Total: 450 bytes
 
 typedef struct {
     int16_t acc_x; // 2B
@@ -81,6 +81,8 @@ typedef struct {
     uint16_t ble_sensor_chr_e_val_handle;
     uint16_t ble_sensor_chr_f_val_handle;
     uint16_t ble_sensor_chr_g_val_handle;
+    uint16_t ble_sensor_chr_h_val_handle;
+    uint16_t ble_sensor_chr_i_val_handle;
     uint16_t ble_command_chr_val_handle;
 } ble_sensor_handles_t;
 

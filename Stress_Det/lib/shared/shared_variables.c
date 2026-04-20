@@ -16,7 +16,7 @@ QueueHandle_t telemetry_queue = NULL;
 RingbufHandle_t raw_data_ringbuf = NULL;
 
 // BLE
-ble_payload_bulk_t ble_payloads_bulk[6] = {0};
+ble_payload_bulk_t ble_payloads_bulk[8] = {0};
 ble_payload_final_t ble_payload_final = {0};
 uint16_t ble_command_chr_val_handle = 0;
 ble_sensor_handles_t ble_val_handles = {0};
