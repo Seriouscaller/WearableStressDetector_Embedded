@@ -27,7 +27,7 @@ static const char *TAG = "S_PR";
 #define TOO_MUCH_TIME_BETWEEN_HEARTBEATS 300
 #define TOO_LITTLE_TIME_BETWEEN_HEARTBEATS MIN_SAMPLES_BETWEEN_BEATS
 #define MIN_SAMPLES_BETWEEN_BEATS TWO_HUNDRED_FIFTY_MS_IN_SMPLS
-#define JITTER_THRESHOLD_ZERO_CROSSING 20.0f
+#define JITTER_THRESHOLD_ZERO_CROSSING 5.0f
 #define MAX_RR_INVERVAL 1500
 #define MIN_RR_INVERVAL 300
 #define MIN_PEAK_FOR_HEARTRATE 5
@@ -35,6 +35,7 @@ static const char *TAG = "S_PR";
 #define MIN_PEAKS_FOR_SDNN 25
 #define MIN_VALID_RR_MS 600
 #define MAX_VALID_RR_MS 1300
+#define BASELINE_RR_MS 800
 #define MAX_DIFF_MS_HEARTBEATS 400
 
 #define TWO_HUNDRED_FIFTY_MS_IN_SMPLS 50
@@ -42,9 +43,9 @@ static const char *TAG = "S_PR";
 #define FIVE_HUNDRED_MS_IN_SMPLS 100
 #define SECONDS_PER_MINUTE 60.0f
 
-#define PEAK_AVG_ALPHA 0.1f
+#define PEAK_AVG_ALPHA 0.5f
 #define THRESHOLD_RATIO 0.5F
-#define MIN_DYNAMIC_THRESHOLD 1.5f
+#define MIN_DYNAMIC_THRESHOLD 20.0f
 
 #define PEAK_WINDOW 5
 
@@ -107,8 +108,8 @@ static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
 {
     enum SignalState signal_position;
 
-    float running_peak_avg = 200.0f;
-    float dynamic_threshold = 50.0f;
+    float running_peak_avg = 100.0f;
+    float dynamic_threshold = 30.0f;
 
     // Init state
     if (history[0].ppg_filtered > 0) {
@@ -230,7 +231,7 @@ static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t h
         if (interval_ms < MAX_VALID_RR_MS && interval_ms > MIN_VALID_RR_MS) {
             pulse_data.rr_intervals[i - 1] = interval_ms;
         } else {
-            pulse_data.rr_intervals[i - 1] = 950;
+            pulse_data.rr_intervals[i - 1] = BASELINE_RR_MS;
         }
     }
 
