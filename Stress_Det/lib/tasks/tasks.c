@@ -132,6 +132,10 @@ void feature_extraction_task(void *pvParameters)
             // Inference using SOM model. Outputs class as single digit
             uint8_t result = classify_stress(&features);
 
+            // 0 = Neutral
+            // 1 = Stress
+            // 2 = Rest
+
             complete_log_t *final_log =
                 (complete_log_t *)heap_caps_malloc(sizeof(complete_log_t), MALLOC_CAP_SPIRAM);
             if (final_log) {
