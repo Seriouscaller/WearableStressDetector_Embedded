@@ -62,7 +62,11 @@ void sensor_sampling_task(void *pvParameters)
 
             if (max30101_get_fifo_count(*sensors->max_handle, &samples_available) == ESP_OK) {
                 for (int i = 0; i < samples_available; i++) {
-                    if (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK) {
+                    bool ppg_ok =
+                        (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
+                    bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
+
+                    if (ppg_ok && gsr_ok) {
                         current_sample.ppg_filtered = ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
                         current_sample.time_stamp = esp_timer_get_time();
                         bundle[samples_collected++] = current_sample;
@@ -72,6 +76,8 @@ void sensor_sampling_task(void *pvParameters)
                                 ESP_LOGE(TAG, "show_telemetry - Failed to send to queue!");
                             }
                         }
+                    } else {
+                        ESP_LOGE(TAG, "Sampling - Failed to sample PPG & GSR!");
                     }
                 }
             }
