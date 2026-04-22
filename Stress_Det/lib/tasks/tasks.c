@@ -23,6 +23,7 @@
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
 #define WINDOW_STEP_SIZE_SEC 15
+#define MOVEMENT_THRESHOLD 4.0f
 
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
 static void collect_training_data(complete_log_t *log, uint16_t *buff_index);
@@ -30,6 +31,7 @@ static void store_training_data(uint16_t *buff_index);
 static void fragment_ble_payloads(complete_log_t *log);
 static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_samples, som_input_t *features,
                                    uint8_t result);
+static bool detect_motion(bmi_data_t *sample);
 
 static const char *TAG = "TASKS";
 extern uint16_t ble_conn_handle;
@@ -73,8 +75,10 @@ void sensor_sampling_task(void *pvParameters)
                     bool ppg_ok =
                         (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
                     bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
+                    bool imu_ok = (bmi260_read(bmi_handle, &current_sample.bmi_data) == ESP_OK);
 
-                    if (ppg_ok && gsr_ok) {
+                    if (ppg_ok && gsr_ok && imu_ok) {
+                        current_sample.has_movement_artifact = detect_motion(&current_sample.bmi_data);
                         current_sample.ppg_filtered = ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
                         current_sample.time_stamp = esp_timer_get_time();
                         bundle[samples_collected++] = current_sample;
@@ -169,25 +173,6 @@ void feature_extraction_task(void *pvParameters)
         } else if (new_samples == NULL) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
-    }
-}
-
-void imu_sampling_task(void *pvParameters)
-{
-    bmi_data_t sample = {0};
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-
-        if (!device_config.enable_imu)
-            continue;
-
-        if (xSemaphoreTake(imu_data_mutex, pdMS_TO_TICKS(10)) != pdTRUE)
-            continue;
-
-        if (bmi260_read(bmi_handle, &sample) == ESP_OK) {
-            imu_data = sample;
-        }
-        xSemaphoreGive(imu_data_mutex);
     }
 }
 
@@ -371,34 +356,38 @@ static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_sa
     }
 }
 
+static bool detect_motion(bmi_data_t *sample)
+{
+    const float GRAVITY_LSB = 2050.0f;
+
+    float fx = (float)sample->acc_x / GRAVITY_LSB;
+    float fy = (float)sample->acc_y / GRAVITY_LSB;
+    float fz = (float)sample->acc_z / GRAVITY_LSB;
+
+    float gx = (float)sample->gyr_x / 16.4f;
+    float gy = (float)sample->gyr_y / 16.4f;
+    float gz = (float)sample->gyr_z / 16.4f;
+
+    float gyro_mag = sqrtf(gx * gx + gy * gy + gz * gz);
+    float total_mag = sqrtf(fx * fx + fy * fy + fz * fz);
+    float movement_intensity = fabsf(total_mag - 1.0f);
+    float total_movement_score = (movement_intensity * 100.0f) + (gyro_mag * 0.5f);
+
+    if (total_movement_score > MOVEMENT_THRESHOLD) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 void telemetry_task(void *pvParameters)
 {
     raw_data_t sample;
-    const float GRAVITY_LSB = 2050.0f;
     while (1) {
         if (xQueueReceive(telemetry_queue, &sample, portMAX_DELAY)) {
             printf(">Raw:%lu\n", sample.ppg_raw);
             printf(">Filt:%.2f\n", sample.ppg_filtered);
-
-            if (xSemaphoreTake(imu_data_mutex, pdMS_TO_TICKS(10))) {
-                bmi_data_t imu_sample = imu_data;
-                xSemaphoreGive(imu_data_mutex);
-                printf(">ax:%d\n", imu_sample.acc_x);
-                printf(">ay:%d\n", imu_sample.acc_y);
-                printf(">az:%d\n", imu_sample.acc_z);
-
-                float fx = (float)imu_sample.acc_x / GRAVITY_LSB;
-                float fy = (float)imu_sample.acc_y / GRAVITY_LSB;
-                float fz = (float)imu_sample.acc_z / GRAVITY_LSB;
-
-                float total_mag = sqrtf(fx * fx + fy * fy + fz * fz);
-                float movement_intensity = fabsf(total_mag - 1.0f);
-                printf(">Raw:%lu\n", sample.ppg_raw);
-                printf(">ax_g:%.3f\n", fx);
-                printf(">ay_g:%.3f\n", fy);
-                printf(">az_g:%.3f\n", fz);
-                printf(">intensity:%.3f\n", movement_intensity);
-            }
+            printf(">Movement:%d\n", sample.has_movement_artifact);
         }
     }
 }

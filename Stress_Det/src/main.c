@@ -111,7 +111,5 @@ void app_main(void)
 
     xTaskCreatePinnedToCore(telemetry_task, "telem", 4 * 1024, NULL, 2, NULL, 1);
     xTaskCreatePinnedToCore(battery_task, "battery", 4 * 1024, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(imu_sampling_task, "imu_smpl", 4 * 1024, NULL, 3, NULL, 0);
-
     return;
 }
