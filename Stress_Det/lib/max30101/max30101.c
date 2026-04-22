@@ -82,15 +82,31 @@ esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handl
     // Green LED set to 25.4 mA
     // [0x00 - 0xFF (51 mA)]
     // Can use both registers to drive Green Led. Double power.
-    write_reg(*max_handle, MAX30101_REG_LED3_PA, MAX30101_LED_PA_25_4MA);
-    write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x00);
+    // write_reg(*max_handle, MAX30101_REG_LED3_PA, MAX30101_LED_PA_25_4MA);
+    write_reg(*max_handle, MAX30101_REG_LED3_PA, 0x7F);
+    // write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x7F); // Waveform more pointy!
+    // write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x00);
+    write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x7F);
 
     // 1 sample averging
-    write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, MAX30101_FIFO_AVG_1);
+    // write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, MAX30101_FIFO_AVG_1);
+    write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, 0x20);
 
     // Sampling rate: 200Hz
     // ADC Resolution: 18-bit
-    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, MAX30101_SAMPLE_RATE_200_ADC_18B);
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, MAX30101_SAMPLE_RATE_200_ADC_18B); //
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x0B); // Generates aliasing in the waveform  71k
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x7F); // Nice waveform 8.7k
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x2B); // Generates aliasing in the waveform  38k
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x2F); // Nice waveform 75k BEST SO FAR
+    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x2F); //
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG,
+    // 0x2A); // 200Hz 17-bit Generates aliasing in the waveform 35k
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG,
+    //         0x28); // 200Hz 15-bit Generates aliasing in the waveform 33k
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x7F); // 800Hz 2avg  Nice waveform 35k
+
+    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x7C); //Jittery
 
     // Enable Multi-LED Mode (0x07)
     // Is needed to enable green LED
@@ -115,4 +131,33 @@ esp_err_t max30101_read_fifo(i2c_master_dev_handle_t dev_handle, uint32_t *ppg_g
         *ppg_green = (uint32_t)((buffer[0] << 16) | (buffer[1] << 8) | buffer[2]) & 0x3FFFF;
     }
     return ret;
+}
+
+esp_err_t max30101_get_fifo_count(i2c_master_dev_handle_t dev_handle, uint8_t *count)
+{
+    uint8_t write_ptr = 0;
+    uint8_t read_ptr = 0;
+    esp_err_t err;
+
+    // 1. Read the Write Pointer (where the sensor is currently writing)
+    err = read_reg(dev_handle, MAX30101_REG_FIFO_WR_PTR, &write_ptr);
+    if (err != ESP_OK)
+        return err;
+
+    // 2. Read the Read Pointer (where our code last stopped reading)
+    err = read_reg(dev_handle, MAX30101_REG_FIFO_RD_PTR, &read_ptr);
+
+    if (err != ESP_OK)
+        return err;
+
+    // 3. Calculate the difference
+    // The FIFO is a circular buffer of 32 slots.
+    if (write_ptr >= read_ptr) {
+        *count = write_ptr - read_ptr;
+    } else {
+        // Handle wrap-around case
+        *count = (32 - read_ptr) + write_ptr;
+    }
+
+    return ESP_OK;
 }

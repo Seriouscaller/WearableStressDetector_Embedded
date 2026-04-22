@@ -36,6 +36,14 @@ int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt
         } else if (attr_h == ble_val_handles.ble_sensor_chr_d_val_handle) {
             os_mbuf_append(ctxt->om, &ble_payloads_bulk[3], sizeof(ble_payload_bulk_t));
         } else if (attr_h == ble_val_handles.ble_sensor_chr_e_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[4], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_f_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[5], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_g_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[6], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_h_val_handle) {
+            os_mbuf_append(ctxt->om, &ble_payloads_bulk[7], sizeof(ble_payload_bulk_t));
+        } else if (attr_h == ble_val_handles.ble_sensor_chr_i_val_handle) {
             os_mbuf_append(ctxt->om, &ble_payload_final, sizeof(ble_payload_final_t));
         }
 

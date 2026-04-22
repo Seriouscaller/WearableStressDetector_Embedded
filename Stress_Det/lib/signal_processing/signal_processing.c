@@ -1,86 +1,275 @@
 // Extracts derived features from PPG and GSR values, such as
 // HRV and tonic, phasic values.
 
+#include "signal_processing.h"
 #include "board_config.h"
 #include "esp_log.h"
+#include "float.h"
 #include "ppg_hrv.h"
 #include "ppg_peaks.h"
+#include "test_signal.h"
 #include "types.h"
+#include <math.h>
 #include <stdio.h>
+#include <string.h>
 
+bool debug_show_heartbeat_stats = true;
+bool debug_show_first_last_peaks = false;
+static const char *TAG = "S_PR";
+
+#define MINIMUM_AMOUNT_OF_DATA (FIVE_SEC * SAMPLE_RATE)
+#define MAXIMUM_AMOUNT_OF_DATA (THIRTY_SEC * SAMPLE_RATE)
+#define FIVE_SEC 5
+#define THIRTY_SEC 30
 #define SAMPLE_RATE 200
-#define TOTAL_SAMPLES 6000
-#define US_PER_SAMPLE (1000000 / SAMPLE_RATE) // 5000uS
-#define MAX_PEAKS 100                         // Maximum expected beats in 30s
+#define MIN_SYSTOLIC_THRESHOLD 15
+#define MAX_PEAKS 100
+#define TOO_MUCH_TIME_BETWEEN_HEARTBEATS 300
+#define TOO_LITTLE_TIME_BETWEEN_HEARTBEATS MIN_SAMPLES_BETWEEN_BEATS
+#define MIN_SAMPLES_BETWEEN_BEATS TWO_HUNDRED_FIFTY_MS_IN_SMPLS
+#define JITTER_THRESHOLD_ZERO_CROSSING 5.0f
+#define MAX_RR_INVERVAL 1500
+#define MIN_RR_INVERVAL 300
+#define MIN_PEAK_FOR_HEARTRATE 5
+#define MAX_PEAK_FOR_HEARTRATE 600
+#define MIN_PEAKS_FOR_SDNN 25
+#define MIN_VALID_RR_MS 600
+#define MAX_VALID_RR_MS 1300
+#define BASELINE_RR_MS 800
+#define MAX_DIFF_MS_HEARTBEATS 400
+
+#define TWO_HUNDRED_FIFTY_MS_IN_SMPLS 50
+#define THREE_HUNDRED_MS_IN_SMPLS 60
+#define FIVE_HUNDRED_MS_IN_SMPLS 100
+#define SECONDS_PER_MINUTE 60.0f
+
+#define PEAK_AVG_ALPHA 0.5f
+#define THRESHOLD_RATIO 0.5F
+#define MIN_DYNAMIC_THRESHOLD 20.0f
+
+#define PEAK_WINDOW 5
+
+enum SignalState {
+    ABOVE = 1,
+    BELOW = -1,
+};
 
 typedef struct {
-    uint32_t timestamps_us[MAX_PEAKS];
-    uint32_t ibi_ms[MAX_PEAKS];
-    int peak_count;
-    float average_hr;
-} pulse_results_t;
+    float local_max;
+    float current_max_val;
+    uint16_t current_max_index;
+    uint16_t peaks_count;
+    uint16_t peaks_idx[MAX_PEAKS];
+    uint16_t zero_crossings;
+    uint16_t double_peaks;
+} peak_data_t;
+
+typedef struct {
+    float rr_intervals[MAX_PEAKS];
+    int32_t succ_diff[MAX_PEAKS];
+    uint8_t num_of_intervals;
+    uint8_t num_of_diffs;
+    float diff_mean;
+    float avg_hr;
+    float rmssd;
+    float sdnn;
+} heart_beat_stats_t;
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
-static void detect_peaks(raw_data_t *signal, pulse_results_t *results);
+static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size);
+static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_data, raw_data_t *history);
+static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
+                                                 uint16_t window_size);
+static void calculate_rmssd(heart_beat_stats_t *data);
 
-static const char *TAG = "SIGNAL_P";
-
-// Template for feature calculations on PPG & GSR
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
-    // Extract PPG & EDA features here. Append to the som_input
-    // Dont forget to normalize into floats!
-
     som_input_t features = {0};
 
-    pulse_results_t results = {0};
+    peak_data_t peak_data = peak_detector(history, window_size);
+    heart_beat_stats_t heart_beat_data = calculate_rr_intervals(&peak_data, history, window_size);
+    calculate_heart_rate(&heart_beat_data, &peak_data, history);
+    calculate_rmssd(&heart_beat_data);
 
-    detect_peaks(&history[0], &results);
+    if (debug_show_heartbeat_stats)
+        printf(">Peaks:%u\n>HR:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count, heart_beat_data.avg_hr,
+               heart_beat_data.rmssd);
 
-    results.average_hr = results.peak_count * 2.0f;
-
-    ppg_hrv_init();
-
-    for (int i = 1; i < results.peak_count; i++) {
-
-        uint32_t t1 = results.timestamps_us[i - 1];
-        uint32_t t2 = results.timestamps_us[i];
-
-        float rr_ms = (t2 - t1) / 1000.0f;
-        float time_s = t2 / 1000000.0f;
-
-        ppg_add_rr(rr_ms, time_s);
-
-        ESP_LOGI(TAG, "IBI:%.1f", rr_ms);
-    }
-
-    float now_s = results.timestamps_us[results.peak_count - 1] / 1000000.0f;
-
-    ppg_features_t hrv = ppg_compute_hrv(now_s);
-
-    ESP_LOGI(TAG, "peaks:%d bpm:%.2f hr:%.2f rmssd:%.2f sdnn:%.2f", results.peak_count, results.average_hr,
-             hrv.hr, hrv.rmssd, hrv.sdnn);
+    features.hr = heart_beat_data.avg_hr;
+    features.hrv_rmssd = heart_beat_data.rmssd;
 
     return features;
 }
 
-static void detect_peaks(raw_data_t *signal, pulse_results_t *results)
+static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
 {
-    ppg_peaks_init();
+    enum SignalState signal_position;
 
-    results->peak_count = 0;
+    float running_peak_avg = 100.0f;
+    float dynamic_threshold = 30.0f;
 
-    for (int i = 0; i < TOTAL_SAMPLES; i++) {
+    // Init state
+    if (history[0].ppg_filtered > 0) {
+        signal_position = ABOVE;
+    } else {
 
-        float x = signal[i].ppg_filtered;
+        signal_position = BELOW;
+    }
 
-        if (ppg_detect_peak(x)) {
+    peak_data_t window_data = {0};
+    window_data.local_max = -FLT_MAX;
 
-            results->timestamps_us[results->peak_count] = (uint32_t)i * US_PER_SAMPLE;
-            results->peak_count++;
+    for (int i = 1; i < window_size; i++) {
 
-            if (results->peak_count >= MAX_PEAKS)
-                break;
+        float sample = history[i].ppg_filtered;
+
+        // ABOVE → BELOW peak done.
+        if ((signal_position == ABOVE) && (sample < -JITTER_THRESHOLD_ZERO_CROSSING)) {
+
+            window_data.zero_crossings++;
+            signal_position = BELOW;
+
+            uint16_t current_peak = window_data.current_max_index;
+
+            // Check threshold, big enough to be a peak.
+            if (window_data.local_max > dynamic_threshold && window_data.local_max < MAX_PEAK_FOR_HEARTRATE) {
+
+                // timing (refractory period)
+                bool beat_detected_too_fast =
+                    (window_data.peaks_count > 0) &&
+                    (current_peak - window_data.peaks_idx[window_data.peaks_count - 1] <
+                     TWO_HUNDRED_FIFTY_MS_IN_SMPLS);
+
+                // Peak found.
+                if (!beat_detected_too_fast && window_data.peaks_count < MAX_PEAKS - 2) {
+                    window_data.peaks_idx[window_data.peaks_count++] = current_peak;
+
+                    // Exponential Moving Average (EMA).
+                    // 0.9 of old value + 0.1 of new value (current peak) moving towards the new peak value
+                    running_peak_avg =
+                        (1.0f - PEAK_AVG_ALPHA) * running_peak_avg + PEAK_AVG_ALPHA * window_data.local_max;
+
+                    // new DTH
+                    dynamic_threshold = THRESHOLD_RATIO * running_peak_avg;
+
+                    // Safety check to prevent threshold from getting too low.
+                    // DTH lower than 1.5 gives DTH 2
+                    if (dynamic_threshold < MIN_DYNAMIC_THRESHOLD) {
+                        dynamic_threshold = MIN_DYNAMIC_THRESHOLD;
+                    }
+                    // check for double peaks.
+                } else if (beat_detected_too_fast) {
+                    window_data.double_peaks++;
+                    ESP_LOGI(TAG, "Double peak ignored at idx: %u", current_peak);
+                }
+            }
         }
+
+        // FALL: BELOW → ABOVE (start new peak)
+        else if ((signal_position == BELOW) && (sample > JITTER_THRESHOLD_ZERO_CROSSING)) {
+
+            window_data.zero_crossings++;
+            signal_position = ABOVE;
+
+            // Start tracking peak
+            window_data.local_max = sample;
+            window_data.current_max_index = i;
+        }
+
+        // Save MAX
+        if ((signal_position == ABOVE) && (sample > window_data.local_max)) {
+
+            window_data.local_max = sample;
+            window_data.current_max_index = i;
+        }
+    }
+    // all heartbeats(peaks) in this window
+    return window_data;
+}
+
+static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_data, raw_data_t *history)
+{
+
+    uint16_t first_beat_idx = 0, last_beat_idx = 0;
+    if (s_data->peaks_count >= MIN_PEAK_FOR_HEARTRATE) {
+        first_beat_idx = s_data->peaks_idx[0];
+        last_beat_idx = s_data->peaks_idx[s_data->peaks_count - 1];
+
+        int64_t t_first_beat = 0, t_last_beat = 0;
+        int64_t duration_us = 0;
+        float duration_sec = 0;
+        t_first_beat = history[first_beat_idx].time_stamp;
+        t_last_beat = history[last_beat_idx].time_stamp;
+
+        duration_us = t_last_beat - t_first_beat;
+        duration_sec = duration_us / 1000000.0f;
+
+        uint16_t intervals = (s_data->peaks_count - 1);
+
+        float beats_per_sec = (float)(intervals / duration_sec);
+        hb_data->avg_hr = (float)beats_per_sec * SECONDS_PER_MINUTE;
+        if (debug_show_first_last_peaks)
+            ESP_LOGI(TAG, "First: %u Last: %u Duration: %.2f Heartbeat: %.1f", first_beat_idx, last_beat_idx,
+                     duration_sec, hb_data->avg_hr);
+    }
+}
+
+static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
+                                                 uint16_t window_size)
+{
+    heart_beat_stats_t pulse_data = {0};
+
+    // Calculate RR/IBI ( ms)
+    for (int i = 1; i < data->peaks_count; i++) {
+
+        int64_t sample_a_idx = data->peaks_idx[i - 1];
+        int64_t sample_b_idx = data->peaks_idx[i];
+
+        int64_t time_diff_us = history[sample_b_idx].time_stamp - history[sample_a_idx].time_stamp;
+        float interval_ms = time_diff_us / 1000.0f;
+        if (interval_ms < MAX_VALID_RR_MS && interval_ms > MIN_VALID_RR_MS) {
+            pulse_data.rr_intervals[i - 1] = interval_ms;
+        } else {
+            pulse_data.rr_intervals[i - 1] = BASELINE_RR_MS;
+        }
+    }
+
+    return pulse_data;
+}
+
+static void calculate_rmssd(heart_beat_stats_t *data)
+{
+    if (data->num_of_intervals < 1) {
+        data->rmssd = 0.0f;
+        return;
+    }
+
+    for (int i = 0; i < MAX_PEAKS - 1; i++) {
+        float current_rr = data->rr_intervals[i];
+        float next_rr = data->rr_intervals[i + 1];
+
+        // Only calculate if BOTH intervals are non-zero/valid
+        if (current_rr > 0 && next_rr > 0) {
+            float diff = next_rr - current_rr;
+            if (fabsf(diff) < MAX_DIFF_MS_HEARTBEATS) {
+                data->succ_diff[data->num_of_diffs] = (int32_t)diff;
+                data->num_of_diffs++;
+            }
+        }
+    }
+
+    double sum_squared_diffs = 0.0;
+    uint16_t actual_diffs = 0;
+    for (int i = 0; i < data->num_of_intervals; i++) {
+        float diff = data->succ_diff[i];
+        sum_squared_diffs += (double)(diff * diff);
+        actual_diffs++;
+    }
+
+    if (actual_diffs > 0) {
+        float mean_square = (float)(sum_squared_diffs / actual_diffs);
+        data->rmssd = sqrtf(mean_square);
+    } else {
+        data->rmssd = 0.0f;
     }
 }
