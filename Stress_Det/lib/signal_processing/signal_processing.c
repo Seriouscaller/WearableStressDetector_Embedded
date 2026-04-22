@@ -76,12 +76,11 @@ typedef struct {
 } heart_beat_stats_t;
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
+static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size);
 static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_data, raw_data_t *history);
-static void calculate_rmssd(heart_beat_stats_t *data);
 static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
                                                  uint16_t window_size);
-static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size);
-static void calculate_sdnn(heart_beat_stats_t *data, peak_data_t *s_data);
+static void calculate_rmssd(heart_beat_stats_t *data);
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
@@ -90,15 +89,13 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     peak_data_t peak_data = peak_detector(history, window_size);
     heart_beat_stats_t heart_beat_data = calculate_rr_intervals(&peak_data, history, window_size);
     calculate_heart_rate(&heart_beat_data, &peak_data, history);
-    calculate_sdnn(&heart_beat_data, &peak_data);
     calculate_rmssd(&heart_beat_data);
 
     if (debug_show_heartbeat_stats)
-        printf(">Peaks:%u\n>HR:%.0f\n>SDNN:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count,
-               heart_beat_data.avg_hr, heart_beat_data.sdnn, heart_beat_data.rmssd);
+        printf(">Peaks:%u\n>HR:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count, heart_beat_data.avg_hr,
+               heart_beat_data.rmssd);
 
     features.hr = heart_beat_data.avg_hr;
-    features.hrv_sdnn = heart_beat_data.sdnn;
     features.hrv_rmssd = heart_beat_data.rmssd;
 
     return features;
@@ -208,7 +205,8 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_dat
 
         uint16_t intervals = (s_data->peaks_count - 1);
 
-        hb_data->avg_hr = (float)(intervals / duration_sec) * SECONDS_PER_MINUTE;
+        float beats_per_sec = (float)(intervals / duration_sec);
+        hb_data->avg_hr = (float)beats_per_sec * SECONDS_PER_MINUTE;
         if (debug_show_first_last_peaks)
             ESP_LOGI(TAG, "First: %u Last: %u Duration: %.2f Heartbeat: %.1f", first_beat_idx, last_beat_idx,
                      duration_sec, hb_data->avg_hr);
@@ -236,43 +234,6 @@ static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t h
     }
 
     return pulse_data;
-}
-
-static void calculate_sdnn(heart_beat_stats_t *hb_data, peak_data_t *s_data)
-{
-    int8_t intervals = s_data->peaks_count - 1;
-    if (intervals < MIN_PEAKS_FOR_SDNN) {
-        hb_data->sdnn = 0.0f;
-        return;
-    }
-
-    // Sum up HR-intervals
-    double sum = 0;
-    uint8_t valid_count = 0;
-    for (int i = 0; i < intervals; i++) {
-        if (hb_data->rr_intervals[i] > 0) {
-            sum += hb_data->rr_intervals[i];
-            valid_count++;
-        }
-    }
-    hb_data->num_of_intervals = valid_count;
-
-    if (valid_count < 2) {
-        hb_data->sdnn = 0.0f;
-        return;
-    }
-
-    float mean = (float)(sum / (intervals - 1));
-
-    hb_data->sdnn = 0;
-    double sum_sq_diff = 0;
-    for (int i = 0; i < intervals; i++) {
-        if (hb_data->rr_intervals[i] > 0) {
-            float dev = hb_data->rr_intervals[i] - mean;
-            sum_sq_diff += (double)(dev * dev);
-        }
-    }
-    hb_data->sdnn = sqrtf((float)sum_sq_diff / valid_count);
 }
 
 static void calculate_rmssd(heart_beat_stats_t *data)

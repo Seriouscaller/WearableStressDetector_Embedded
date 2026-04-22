@@ -29,7 +29,7 @@ static const char *TAG = "BMI260";
 #define BMI260_INIT_FINALIZE 0x01
 #define BMI260_INIT_SUCCESS 0x01
 #define BMI260_CMD_SOFTRESET 0xB6
-#define BMI260_CMD_PWRSAVE_DISABLE 0xB6
+#define BMI260_CMD_PWRSAVE_DISABLE 0x00
 
 #define BMI260_ACC_RANGE_2G 0x03
 #define BMI260_ACC_CONF_100HZ 0x28
@@ -57,7 +57,8 @@ esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     vTaskDelay(pdMS_TO_TICKS(10));
 
     // Disable advanced power saving
-    write_reg(*dev_handle, BMI260_REG_PWR_CONF, BMI260_CMD_PWRSAVE_DISABLE);
+    write_reg(*dev_handle, BMI260_REG_PWR_CONF, 0x00);
+    write_reg(*dev_handle, BMI260_REG_PWR_CTRL, 0x00);
     vTaskDelay(pdMS_TO_TICKS(5));
 
     uint8_t chip_id = 0;
@@ -97,6 +98,7 @@ esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
 
     // Enable Accel and Gyro
     write_reg(*dev_handle, BMI260_REG_PWR_CTRL, BMI260_PWR_ACC_EN | BMI260_PWR_GYR_EN);
+    vTaskDelay(pdMS_TO_TICKS(50));
 
     ESP_LOGI(TAG, "BMI260 Initialized successfully");
     return ESP_OK;
@@ -123,7 +125,7 @@ static esp_err_t upload_bmi260_config(i2c_master_dev_handle_t *dev_handle)
     memcpy(&burst_buf[1], bmi260_config_file, config_size);
 
     ESP_LOGI(TAG, "Uploading configuration (%d bytes)...", config_size);
-    esp_err_t ret = i2c_master_transmit(*dev_handle, burst_buf, config_size + 1, -1);
+    esp_err_t ret = i2c_master_transmit(*dev_handle, burst_buf, config_size + 1, pdMS_TO_TICKS(100));
     free(burst_buf);
 
     if (ret != ESP_OK) {
@@ -144,7 +146,7 @@ esp_err_t bmi260_read(i2c_master_dev_handle_t dev_handle, bmi_data_t *data)
     uint8_t buf_size = sizeof(buf) / sizeof(buf[0]);
 
     // Read 12 bytes: 6 for Accel, 6 for Gyro
-    esp_err_t ret = i2c_master_transmit_receive(dev_handle, &reg, 1, buf, buf_size, -1);
+    esp_err_t ret = i2c_master_transmit_receive(dev_handle, &reg, 1, buf, buf_size, pdTICKS_TO_MS(100));
 
     if (ret == ESP_OK) {
         data->acc_x = (int16_t)((buf[1] << 8) | buf[0]);
@@ -154,6 +156,9 @@ esp_err_t bmi260_read(i2c_master_dev_handle_t dev_handle, bmi_data_t *data)
         data->gyr_x = (int16_t)((buf[7] << 8) | buf[6]);
         data->gyr_y = (int16_t)((buf[9] << 8) | buf[8]);
         data->gyr_z = (int16_t)((buf[11] << 8) | buf[10]);
+    } else {
+        ESP_LOGW(TAG, "Failed to read IMU");
     }
+
     return ret;
 }

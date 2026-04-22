@@ -13,6 +13,6 @@ device_control_t device_config = {
     .show_spiff_status = false,
     .enable_ppg = true,
     .enable_gsr = true,
-    .enable_imu = false,
+    .enable_imu = true,
     .enable_temp = false,
 };
