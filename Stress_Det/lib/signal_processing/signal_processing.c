@@ -61,6 +61,8 @@ typedef struct {
     uint16_t peaks_idx[MAX_PEAKS];
     uint16_t zero_crossings;
     uint16_t double_peaks;
+    int64_t invalid_data_us;
+    int64_t valid_data_us;
 } peak_data_t;
 
 typedef struct {
@@ -81,15 +83,31 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_dat
 static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
                                                  uint16_t window_size);
 static void calculate_rmssd(heart_beat_stats_t *data);
+static int64_t sum_invalid_data_us(raw_data_t history[], uint16_t window_size);
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
     som_input_t features = {0};
+    heart_beat_stats_t beat_data = {0};
 
     peak_data_t peak_data = peak_detector_with_motion_detection(history, window_size);
+    calculate_heart_rate(&beat_data, &peak_data, history);
+
+    float valid_time_ms = (float)peak_data.valid_data_us / 1000.0f;
+    float invalid_time_ms = (float)peak_data.invalid_data_us / 1000.0f;
+    float total_time_ms = valid_time_ms + invalid_time_ms;
+    float clean_data_ratio = 0.0f;
+    if (total_time_ms > 0) {
+        // Ratio of usable signal (0.0 to 1.0)
+        clean_data_ratio = (valid_time_ms / total_time_ms) * 100.0f;
+    } else {
+        clean_data_ratio = 0.0f;
+    }
 
     if (debug_show_heartbeat_stats)
-        printf(">Peaks:%u\n", peak_data.peaks_count);
+        printf(
+            ">Peaks:%u\n>HR:%.0f\n>Valid data (ms):%.0f\n>Invalid data (ms):%.0f\n>Clean Data Ratio:%.1f\n",
+            peak_data.peaks_count, beat_data.avg_hr, valid_time_ms, invalid_time_ms, clean_data_ratio);
 
     /*
     peak_data_t peak_data = peak_detector(history, window_size);
@@ -125,12 +143,15 @@ static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uin
     peak_data_t window_data = {0};
     window_data.local_max = -FLT_MAX;
 
+    window_data.invalid_data_us = sum_invalid_data_us(history, window_size);
+
     for (int i = 1; i < window_size; i++) {
 
         float sample = history[i].ppg_filtered;
+        bool no_motion_detected = !history[i].has_movement_artifact;
 
         // ABOVE → BELOW peak done.
-        if ((signal_position == ABOVE) && (sample < -JITTER_THRESHOLD_ZERO_CROSSING)) {
+        if ((signal_position == ABOVE) && (sample < -JITTER_THRESHOLD_ZERO_CROSSING) && no_motion_detected) {
 
             window_data.zero_crossings++;
             signal_position = BELOW;
@@ -138,7 +159,8 @@ static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uin
             uint16_t current_peak = window_data.current_max_index;
 
             // Check threshold, big enough to be a peak.
-            if (window_data.local_max > dynamic_threshold && window_data.local_max < MAX_PEAK_FOR_HEARTRATE) {
+            if (window_data.local_max > dynamic_threshold && window_data.local_max < MAX_PEAK_FOR_HEARTRATE &&
+                no_motion_detected) {
 
                 // timing (refractory period)
                 bool beat_detected_too_fast =
@@ -172,7 +194,8 @@ static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uin
         }
 
         // FALL: BELOW → ABOVE (start new peak)
-        else if ((signal_position == BELOW) && (sample > JITTER_THRESHOLD_ZERO_CROSSING)) {
+        else if ((signal_position == BELOW) && (sample > JITTER_THRESHOLD_ZERO_CROSSING) &&
+                 no_motion_detected) {
 
             window_data.zero_crossings++;
             signal_position = ABOVE;
@@ -183,7 +206,7 @@ static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uin
         }
 
         // Save MAX
-        if ((signal_position == ABOVE) && (sample > window_data.local_max)) {
+        if ((signal_position == ABOVE) && (sample > window_data.local_max) && no_motion_detected) {
 
             window_data.local_max = sample;
             window_data.current_max_index = i;
@@ -191,6 +214,32 @@ static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uin
     }
     // all heartbeats(peaks) in this window
     return window_data;
+}
+
+static int64_t sum_invalid_data_us(raw_data_t history[], uint16_t window_size)
+{
+    int64_t total_invalid_us = 0;
+    int64_t block_start_time = -1;
+
+    for (int i = 0; i < window_size; i++) {
+        // If we find an artifact and we aren't currently tracking a block
+        if (history[i].has_movement_artifact && block_start_time == -1) {
+            block_start_time = history[i].time_stamp;
+        }
+        // If the artifact ends OR we hit the end of the array while in a block
+        else if (!history[i].has_movement_artifact && block_start_time != -1) {
+            total_invalid_us += (history[i - 1].time_stamp - block_start_time);
+            block_start_time = -1; // Reset for next block
+        }
+    }
+
+    // Handle case where the window ends while still in an artifact block
+    if (block_start_time != -1) {
+        total_invalid_us += (history[window_size - 1].time_stamp - block_start_time);
+    }
+
+    // Convert microseconds to milliseconds
+    return total_invalid_us;
 }
 
 static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
@@ -287,21 +336,28 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_dat
         last_beat_idx = s_data->peaks_idx[s_data->peaks_count - 1];
 
         int64_t t_first_beat = 0, t_last_beat = 0;
-        int64_t duration_us = 0;
-        float duration_sec = 0;
         t_first_beat = history[first_beat_idx].time_stamp;
         t_last_beat = history[last_beat_idx].time_stamp;
 
-        duration_us = t_last_beat - t_first_beat;
-        duration_sec = duration_us / 1000000.0f;
+        int64_t duration_us = t_last_beat - t_first_beat;
+        int64_t valid_duration_us = duration_us - s_data->invalid_data_us;
+        s_data->valid_data_us = valid_duration_us;
 
+        float valid_duration_sec = valid_duration_us / 1000000.0f;
         uint16_t intervals = (s_data->peaks_count - 1);
+        if (valid_duration_sec <= 0) {
+            hb_data->avg_hr = 0;
+            ESP_LOGW(TAG, "calculate_heart_rate - Invalid Duration");
+            return;
+        }
 
-        float beats_per_sec = (float)(intervals / duration_sec);
-        hb_data->avg_hr = (float)beats_per_sec * SECONDS_PER_MINUTE;
+        float beats_per_sec = (float)(intervals / valid_duration_sec);
+        float heartrate = (float)beats_per_sec * SECONDS_PER_MINUTE;
+        hb_data->avg_hr = heartrate;
+
         if (debug_show_first_last_peaks)
-            ESP_LOGI(TAG, "First: %u Last: %u Duration: %.2f Heartbeat: %.1f", first_beat_idx, last_beat_idx,
-                     duration_sec, hb_data->avg_hr);
+            ESP_LOGI(TAG, "First: %u Last: %u Valid Duration: %.2f Heartbeat: %.1f", first_beat_idx,
+                     last_beat_idx, valid_duration_sec, hb_data->avg_hr);
     }
 }
 

@@ -59,7 +59,7 @@ esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     // Disable advanced power saving
     write_reg(*dev_handle, BMI260_REG_PWR_CONF, 0x00);
     write_reg(*dev_handle, BMI260_REG_PWR_CTRL, 0x00);
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(10));
 
     uint8_t chip_id = 0;
     uint8_t reg = BMI260_REG_CHIP_ID;
@@ -75,7 +75,7 @@ esp_err_t bmi260_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
         ESP_LOGE(TAG, "Failed to upload config file");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(25)); // Wait for initialization
+    vTaskDelay(pdMS_TO_TICKS(150)); // Wait for initialization
 
     // Check if the BMI is ready after uploading config file
     uint8_t status = 0;

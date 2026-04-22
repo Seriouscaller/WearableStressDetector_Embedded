@@ -86,7 +86,7 @@ void app_main(void)
     if (device_config.enable_imu)
         ESP_ERROR_CHECK(bmi260_init(bus_handle, &bmi_handle));
 
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(400));
 
     // Initialize I2C-sensors
     if (device_config.enable_temp)
