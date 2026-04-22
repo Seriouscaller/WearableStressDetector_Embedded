@@ -88,12 +88,14 @@ void sensor_sampling_task(void *pvParameters)
 
                         if (motion_cooldown_counter > 0) {
                             current_sample.has_movement_artifact = true;
-                            motion_cooldown_counter--; // Decrement towards zero
+                            current_sample.ppg_filtered = 500.0f;
+                            motion_cooldown_counter--;
                         } else {
                             current_sample.has_movement_artifact = false;
+                            current_sample.ppg_filtered =
+                                ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
                         }
 
-                        current_sample.ppg_filtered = ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
                         current_sample.time_stamp = esp_timer_get_time();
                         bundle[samples_collected++] = current_sample;
 
