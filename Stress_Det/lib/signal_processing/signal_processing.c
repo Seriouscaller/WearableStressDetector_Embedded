@@ -112,6 +112,7 @@ static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
     if (history[0].ppg_filtered > 0) {
         signal_position = ABOVE;
     } else {
+
         signal_position = BELOW;
     }
 
@@ -133,22 +134,22 @@ static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
             // Check threshold, big enough to be a peak.
             if (window_data.local_max > dynamic_threshold && window_data.local_max < MAX_PEAK_FOR_HEARTRATE) {
 
-                // 2. timing (refractory period)
+                // timing (refractory period)
                 bool beat_detected_too_fast =
                     (window_data.peaks_count > 0) &&
                     (current_peak - window_data.peaks_idx[window_data.peaks_count - 1] <
                      TWO_HUNDRED_FIFTY_MS_IN_SMPLS);
 
-                // 3. Peak found.
+                // Peak found.
                 if (!beat_detected_too_fast && window_data.peaks_count < MAX_PEAKS - 2) {
                     window_data.peaks_idx[window_data.peaks_count++] = current_peak;
 
                     // Exponential Moving Average (EMA).
                     // 0.9 of old value + 0.1 of new value (current peak) moving towards the new peak value
-                    // over time.
                     running_peak_avg =
                         (1.0f - PEAK_AVG_ALPHA) * running_peak_avg + PEAK_AVG_ALPHA * window_data.local_max;
 
+                    // new DTH
                     dynamic_threshold = THRESHOLD_RATIO * running_peak_avg;
 
                     // Safety check to prevent threshold from getting too low.
@@ -156,7 +157,7 @@ static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
                     if (dynamic_threshold < MIN_DYNAMIC_THRESHOLD) {
                         dynamic_threshold = MIN_DYNAMIC_THRESHOLD;
                     }
-
+                    // check for double peaks.
                 } else if (beat_detected_too_fast) {
                     window_data.double_peaks++;
                     ESP_LOGI(TAG, "Double peak ignored at idx: %u", current_peak);
@@ -182,7 +183,7 @@ static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
             window_data.current_max_index = i;
         }
     }
-
+    // all heartbeats(peaks) in this window
     return window_data;
 }
 
