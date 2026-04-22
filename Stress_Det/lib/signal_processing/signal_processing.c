@@ -7,7 +7,6 @@
 #include "float.h"
 #include "ppg_hrv.h"
 #include "ppg_peaks.h"
-#include "test_signal.h"
 #include "types.h"
 #include <math.h>
 #include <stdio.h>
@@ -77,6 +76,7 @@ typedef struct {
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
 static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size);
+static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uint16_t window_size);
 static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_data, raw_data_t *history);
 static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
                                                  uint16_t window_size);
@@ -86,19 +86,111 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
     som_input_t features = {0};
 
+    peak_data_t peak_data = peak_detector_with_motion_detection(history, window_size);
+
+    if (debug_show_heartbeat_stats)
+        printf(">Peaks:%u\n", peak_data.peaks_count);
+
+    /*
     peak_data_t peak_data = peak_detector(history, window_size);
     heart_beat_stats_t heart_beat_data = calculate_rr_intervals(&peak_data, history, window_size);
     calculate_heart_rate(&heart_beat_data, &peak_data, history);
-    calculate_rmssd(&heart_beat_data);
-
+    calculate_rmssd(&heart_beat_data);*/
+    /*
     if (debug_show_heartbeat_stats)
         printf(">Peaks:%u\n>HR:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count, heart_beat_data.avg_hr,
-               heart_beat_data.rmssd);
+               heart_beat_data.rmssd);*/
 
-    features.hr = heart_beat_data.avg_hr;
-    features.hrv_rmssd = heart_beat_data.rmssd;
+    /*features.hr = heart_beat_data.avg_hr;
+    features.hrv_rmssd = heart_beat_data.rmssd;*/
 
     return features;
+}
+
+static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uint16_t window_size)
+{
+    enum SignalState signal_position;
+
+    float running_peak_avg = 100.0f;
+    float dynamic_threshold = 30.0f;
+
+    // Init state
+    if (history[0].ppg_filtered > 0) {
+        signal_position = ABOVE;
+    } else {
+
+        signal_position = BELOW;
+    }
+
+    peak_data_t window_data = {0};
+    window_data.local_max = -FLT_MAX;
+
+    for (int i = 1; i < window_size; i++) {
+
+        float sample = history[i].ppg_filtered;
+
+        // ABOVE → BELOW peak done.
+        if ((signal_position == ABOVE) && (sample < -JITTER_THRESHOLD_ZERO_CROSSING)) {
+
+            window_data.zero_crossings++;
+            signal_position = BELOW;
+
+            uint16_t current_peak = window_data.current_max_index;
+
+            // Check threshold, big enough to be a peak.
+            if (window_data.local_max > dynamic_threshold && window_data.local_max < MAX_PEAK_FOR_HEARTRATE) {
+
+                // timing (refractory period)
+                bool beat_detected_too_fast =
+                    (window_data.peaks_count > 0) &&
+                    (current_peak - window_data.peaks_idx[window_data.peaks_count - 1] <
+                     TWO_HUNDRED_FIFTY_MS_IN_SMPLS);
+
+                // Peak found.
+                if (!beat_detected_too_fast && window_data.peaks_count < MAX_PEAKS - 2) {
+                    window_data.peaks_idx[window_data.peaks_count++] = current_peak;
+
+                    // Exponential Moving Average (EMA).
+                    // 0.9 of old value + 0.1 of new value (current peak) moving towards the new peak value
+                    running_peak_avg =
+                        (1.0f - PEAK_AVG_ALPHA) * running_peak_avg + PEAK_AVG_ALPHA * window_data.local_max;
+
+                    // new DTH
+                    dynamic_threshold = THRESHOLD_RATIO * running_peak_avg;
+
+                    // Safety check to prevent threshold from getting too low.
+                    // DTH lower than 1.5 gives DTH 2
+                    if (dynamic_threshold < MIN_DYNAMIC_THRESHOLD) {
+                        dynamic_threshold = MIN_DYNAMIC_THRESHOLD;
+                    }
+                    // check for double peaks.
+                } else if (beat_detected_too_fast) {
+                    window_data.double_peaks++;
+                    ESP_LOGI(TAG, "Double peak ignored at idx: %u", current_peak);
+                }
+            }
+        }
+
+        // FALL: BELOW → ABOVE (start new peak)
+        else if ((signal_position == BELOW) && (sample > JITTER_THRESHOLD_ZERO_CROSSING)) {
+
+            window_data.zero_crossings++;
+            signal_position = ABOVE;
+
+            // Start tracking peak
+            window_data.local_max = sample;
+            window_data.current_max_index = i;
+        }
+
+        // Save MAX
+        if ((signal_position == ABOVE) && (sample > window_data.local_max)) {
+
+            window_data.local_max = sample;
+            window_data.current_max_index = i;
+        }
+    }
+    // all heartbeats(peaks) in this window
+    return window_data;
 }
 
 static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
@@ -183,7 +275,6 @@ static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
             window_data.current_max_index = i;
         }
     }
-    // all heartbeats(peaks) in this window
     return window_data;
 }
 

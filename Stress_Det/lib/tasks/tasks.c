@@ -22,8 +22,9 @@
 
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
-#define WINDOW_STEP_SIZE_SEC 15
+#define WINDOW_STEP_SIZE_SEC 1
 #define MOVEMENT_THRESHOLD 4.0f
+#define MOTION_COOLDOWN_SAMPLES 300
 
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
 static void collect_training_data(complete_log_t *log, uint16_t *buff_index);
@@ -61,6 +62,7 @@ void sensor_sampling_task(void *pvParameters)
     const TickType_t xFrequency = pdMS_TO_TICKS(PPG_AND_GSR_SAMPLING_RATE_IN_MS);
     static raw_data_t bundle[PPG_SAMPLE_RATE];
     int samples_collected = 0;
+    static uint32_t motion_cooldown_counter = 0;
 
     ppg_processing_init();
 
@@ -78,7 +80,19 @@ void sensor_sampling_task(void *pvParameters)
                     bool imu_ok = (bmi260_read(bmi_handle, &current_sample.bmi_data) == ESP_OK);
 
                     if (ppg_ok && gsr_ok && imu_ok) {
-                        current_sample.has_movement_artifact = detect_motion(&current_sample.bmi_data);
+                        bool motion_now = detect_motion(&current_sample.bmi_data);
+
+                        if (motion_now) {
+                            motion_cooldown_counter = MOTION_COOLDOWN_SAMPLES;
+                        }
+
+                        if (motion_cooldown_counter > 0) {
+                            current_sample.has_movement_artifact = true;
+                            motion_cooldown_counter--; // Decrement towards zero
+                        } else {
+                            current_sample.has_movement_artifact = false;
+                        }
+
                         current_sample.ppg_filtered = ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
                         current_sample.time_stamp = esp_timer_get_time();
                         bundle[samples_collected++] = current_sample;
@@ -134,6 +148,7 @@ void feature_extraction_task(void *pvParameters)
             (raw_data_t *)xRingbufferReceive(raw_data_ringbuf, &item_size, pdMS_TO_TICKS(1500));
 
         if (new_samples != NULL) {
+
             // Shift the 29 seconds of "old" data to the front
             // Moving (3000 - 100) elements * size of each element
             memmove(history, &history[SAMPLES_PER_SECOND],
