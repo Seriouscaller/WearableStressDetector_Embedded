@@ -37,3 +37,10 @@ esp_err_t write_reg(i2c_master_dev_handle_t handle, uint8_t reg, uint8_t data)
     uint8_t buf[2] = {reg, data};
     return i2c_master_transmit(handle, buf, sizeof(buf), -1);
 }
+
+esp_err_t read_reg(i2c_master_dev_handle_t handle, uint8_t reg, uint8_t *data)
+{
+    // i2c_master_transmit_receive performs the write-then-read sequence
+    // It sends the 'reg' address and then reads 1 byte into 'data'
+    return i2c_master_transmit_receive(handle, &reg, 1, data, 1, -1);
+}

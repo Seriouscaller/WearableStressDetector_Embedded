@@ -22,13 +22,27 @@ void ppg_filter_init()
     hp.x1 = hp.x2 = 0.0f;
     hp.y1 = hp.y2 = 0.0f;
 
+    // New
+    lp.b0 = 0.0286f;
+    lp.b1 = 0.0572f;
+    lp.b2 = 0.0286f;
+    lp.a1 = -1.4542f;
+    lp.a2 = 0.5686f;
+    /*
+        lp.b0 = 0.0036f;
+        lp.b1 = 0.0072f;
+        lp.b2 = 0.0036f;
+        lp.a1 = -1.8227f;
+        lp.a2 = 0.8372f;*/
+
     // --- Low-pass 8 Hz (Fs = 200 Hz) ---
+    /*
     lp.b0 = 0.0134f;
     lp.b1 = 0.0267f;
     lp.b2 = 0.0134f;
 
     lp.a1 = -1.6475f;
-    lp.a2 = 0.7009f;
+    lp.a2 = 0.7009f;*/
 
     lp.x1 = lp.x2 = 0.0f;
     lp.y1 = lp.y2 = 0.0f;

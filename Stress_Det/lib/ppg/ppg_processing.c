@@ -2,7 +2,7 @@
 #include "ppg_filter.h"
 #include <stdio.h>
 
-#define PPG_OFF_WRIST_THRESHOLD 20000
+#define PPG_OFF_WRIST_THRESHOLD 4000
 
 void ppg_processing_init()
 {

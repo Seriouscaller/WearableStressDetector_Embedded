@@ -13,6 +13,10 @@
 #include <stdio.h>
 #include <string.h>
 
+bool debug_show_heartbeat_stats = true;
+bool debug_show_first_last_peaks = false;
+static const char *TAG = "S_PR";
+
 #define MINIMUM_AMOUNT_OF_DATA (FIVE_SEC * SAMPLE_RATE)
 #define MAXIMUM_AMOUNT_OF_DATA (THIRTY_SEC * SAMPLE_RATE)
 #define FIVE_SEC 5
@@ -23,33 +27,27 @@
 #define TOO_MUCH_TIME_BETWEEN_HEARTBEATS 300
 #define TOO_LITTLE_TIME_BETWEEN_HEARTBEATS MIN_SAMPLES_BETWEEN_BEATS
 #define MIN_SAMPLES_BETWEEN_BEATS TWO_HUNDRED_FIFTY_MS_IN_SMPLS
-#define JITTER_THRESHOLD_ZERO_CROSSING 1.0f
+#define JITTER_THRESHOLD_ZERO_CROSSING 5.0f
 #define MAX_RR_INVERVAL 1500
 #define MIN_RR_INVERVAL 300
-#define MIN_VALLEY_THRESHOLD -2
+#define MIN_PEAK_FOR_HEARTRATE 5
+#define MAX_PEAK_FOR_HEARTRATE 600
+#define MIN_PEAKS_FOR_SDNN 25
+#define MIN_VALID_RR_MS 600
+#define MAX_VALID_RR_MS 1300
+#define BASELINE_RR_MS 800
+#define MAX_DIFF_MS_HEARTBEATS 400
 
 #define TWO_HUNDRED_FIFTY_MS_IN_SMPLS 50
 #define THREE_HUNDRED_MS_IN_SMPLS 60
 #define FIVE_HUNDRED_MS_IN_SMPLS 100
 #define SECONDS_PER_MINUTE 60.0f
 
-#define PEAK_AVG_ALPHA 0.1f
+#define PEAK_AVG_ALPHA 0.5f
 #define THRESHOLD_RATIO 0.5F
-#define MIN_DYNAMIC_THRESHOLD 1.5f
+#define MIN_DYNAMIC_THRESHOLD 20.0f
 
 #define PEAK_WINDOW 5
-
-// 200 samples = 1 sec
-// 100 samp 0.5 sec
-//  50 samp 0.25 sec
-
-bool debug_zero_cross_algo = false;
-bool debug_valley_found = false;
-bool debug_show_heartbeat_stats = true;
-bool debug_zero_cross = false;
-bool debug_hr_features = false;
-bool debug_show_all_intervals = false;
-bool show_new_intervals = false;
 
 enum SignalState {
     ABOVE = 1,
@@ -57,23 +55,19 @@ enum SignalState {
 };
 
 typedef struct {
-    float local_min;
     float local_max;
-    float current_min_val;
     float current_max_val;
-    uint16_t current_min_index;
     uint16_t current_max_index;
-    uint16_t valley_count;
     uint16_t peaks_count;
-    uint16_t valley_idx[MAX_PEAKS];
     uint16_t peaks_idx[MAX_PEAKS];
     uint16_t zero_crossings;
     uint16_t double_peaks;
-} signal_data_t;
+} peak_data_t;
 
 typedef struct {
     float rr_intervals[MAX_PEAKS];
     int32_t succ_diff[MAX_PEAKS];
+    uint8_t num_of_intervals;
     uint8_t num_of_diffs;
     float diff_mean;
     float avg_hr;
@@ -82,261 +76,40 @@ typedef struct {
 } heart_beat_stats_t;
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size);
+static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_data, raw_data_t *history);
 static void calculate_rmssd(heart_beat_stats_t *data);
-static heart_beat_stats_t calculate_rr_intervals(signal_data_t *data);
-static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size);
-static bool is_signal_data_valid(signal_data_t *data);
-static void calculate_sdnn(heart_beat_stats_t *data, signal_data_t *s_data);
-static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_data, uint16_t sampling_rate,
-                                 raw_data_t history[]);
-static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size);
-static float calculate_centroid(raw_data_t history[], int peak_index, int window_size, int signal_length);
-
-static const char *TAG = "S_PR";
+static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
+                                                 uint16_t window_size);
+static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size);
+static void calculate_sdnn(heart_beat_stats_t *data, peak_data_t *s_data);
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
     som_input_t features = {0};
-    // Extract PPG & EDA features here. Append to the som_input
-    // Dont forget to normalize into floats!
-    /*
-    // SINE_WAVE_600       Amp:10 | 596 samples  | Perfect sine-wave  | Zero-crossings: 5
-    // NOISY_SINE_WAVE_600 Amp:10 | 598 samples  | jitters and spikes | Zero-crossings: 5
-    // PPG_SIGNAL_15_SEC   Amp:40 | 1942 samples | Real filtered data | Zero-crossings: 34
-    // RECORDED_PPG_SIGNAL_30_SEC Amp:20 | 6000 samples | Real filtered data | Zero-crossings: 61 | Peaks: 30
-    signal_data_t signal_data = peak_detector(RECORDED_PPG_SIGNAL_30_SEC, window_size);
 
-    bool res = is_signal_data_valid(&signal_data);
-    if (res) {
-        ESP_LOGI(TAG, "Valid signal!");
-    } else {
-        ESP_LOGI(TAG, "Invalid signal!");
-    }
+    peak_data_t peak_data = peak_detector(history, window_size);
+    heart_beat_stats_t heart_beat_data = calculate_rr_intervals(&peak_data, history, window_size);
+    calculate_heart_rate(&heart_beat_data, &peak_data, history);
+    calculate_sdnn(&heart_beat_data, &peak_data);
+    calculate_rmssd(&heart_beat_data);
 
-    heart_beat_stats_t pulse_data = calculate_rr_intervals(&signal_data);
+    if (debug_show_heartbeat_stats)
+        printf(">Peaks:%u\n>HR:%.0f\n>SDNN:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count,
+               heart_beat_data.avg_hr, heart_beat_data.sdnn, heart_beat_data.rmssd);
 
-    if (debug_show_all_intervals) {
-        for (int i = 0; i < MAX_PEAKS; i++) {
-            if (pulse_data.rr_intervals[i] != 0) {
-                ESP_LOGI(TAG, "Int: %2.f", pulse_data.rr_intervals[i]);
-            }
-        }
-    }
-
-    calculate_rmssd(&pulse_data);
-    calculate_heart_rate(&pulse_data, &signal_data, SAMPLE_RATE);
-    calculate_sdnn(&pulse_data, &signal_data);
-
-    ESP_LOGI(TAG, "Zero crossings: %u Heartbeats: %.1f RMSSD: %.1f SDNN: %.1f", signal_data.zero_crossings,
-             pulse_data.avg_hr, pulse_data.rmssd, pulse_data.sdnn);*/
-
-    // NEW VALLEY DETECTOR
-    // SINE_WAVE_600       Amp:10 | 596 samples  | Perfect sine-wave  | Zero-crossings: 5
-    // NOISY_SINE_WAVE_600 Amp:10 | 598 samples  | jitters and spikes | Zero-crossings: 5
-    // PPG_SIGNAL_15_SEC   Amp:40 | 1942 samples | Real filtered data | Zero-crossings: 34
-    // RECORDED_PPG_SIGNAL_30_SEC Amp:20 | 6000 samples | Real filtered data | Zero-crossings: 61 | Peaks: 30
-    // signal_data_t signal_data = valley_detector(history, window_size);
-
-    signal_data_t signal_data = valley_detector(history, window_size);
-
-    heart_beat_stats_t pulse_data = calculate_rr_intervals(&signal_data);
-
-    calculate_heart_rate(&pulse_data, &signal_data, SAMPLE_RATE, history);
-
-    ESP_LOGI(TAG, "Zero crossings: %u Valleys: %u Heartbeats: %.1f", signal_data.zero_crossings,
-             signal_data.valley_count, pulse_data.avg_hr);
+    features.hr = heart_beat_data.avg_hr;
+    features.hrv_sdnn = heart_beat_data.sdnn;
+    features.hrv_rmssd = heart_beat_data.rmssd;
 
     return features;
 }
 
-static signal_data_t valley_detector(raw_data_t history[], uint16_t window_size)
-{
-    // Initial state based on first sample
-    enum SignalState signal_position = (history[0].ppg_filtered >= 0) ? ABOVE : BELOW;
-
-    signal_data_t window_data = {0};
-    window_data.local_min = FLT_MAX;
-    window_data.local_max = -FLT_MAX;
-
-    for (int i = 1; i < window_size; i++) {
-
-        // DETECTED TRANSITION: ABOVE -> BELOW (Start looking for valley)
-        if ((signal_position == ABOVE) && (history[i].ppg_filtered < -JITTER_THRESHOLD_ZERO_CROSSING)) {
-            window_data.zero_crossings++;
-            signal_position = BELOW;
-
-            // Reset search for valley
-            window_data.local_min = history[i].ppg_filtered;
-            window_data.current_min_index = i;
-        }
-
-        // DETECTED TRANSITION: BELOW -> ABOVE (Finished finding valley)
-        else if ((signal_position == BELOW) && (history[i].ppg_filtered > JITTER_THRESHOLD_ZERO_CROSSING)) {
-            window_data.zero_crossings++;
-            signal_position = ABOVE;
-
-            if (window_data.local_min < MIN_VALLEY_THRESHOLD) {
-                uint16_t current_v_idx = window_data.current_min_index;
-
-                bool beat_detected_too_fast =
-                    (window_data.valley_count > 0) &&
-                    (current_v_idx - window_data.valley_idx[window_data.valley_count - 1] <
-                     TWO_HUNDRED_FIFTY_MS_IN_SMPLS);
-
-                if (!beat_detected_too_fast && window_data.valley_count < MAX_PEAKS - 2) {
-
-                    window_data.valley_idx[window_data.valley_count++] = window_data.current_min_index;
-                    if (debug_valley_found)
-                        ESP_LOGI(TAG, "Valley: Idx %d, Val %.2f", current_v_idx, window_data.local_min);
-                }
-            }
-        }
-
-        // WHILE BELOW: Keep track of absolute minimum
-        if ((signal_position == BELOW) && (history[i].ppg_filtered < window_data.local_min)) {
-            window_data.local_min = history[i].ppg_filtered;
-            window_data.current_min_index = i;
-        }
-    }
-
-    return window_data;
-}
-
-static heart_beat_stats_t calculate_rr_intervals(signal_data_t *data)
-{
-    heart_beat_stats_t pulse_data = {0};
-    // pulse_data.avg_hr = 0;
-    // memset(pulse_data.rr_intervals, 0, sizeof(pulse_data.rr_intervals));
-
-    uint16_t diff_idx = 0;
-    // RR = (idx(i) - idx(i-1)) * (1000 / smplrate)
-    for (int valley = 1; valley < data->valley_count; valley++) {
-        uint16_t interval = (data->valley_idx[valley] - data->valley_idx[valley - 1]) * (1000 / SAMPLE_RATE);
-        pulse_data.rr_intervals[valley - 1] = interval;
-
-        // Calculate successive difference between intervals
-        if (valley > 1) {
-            int32_t diff = pulse_data.rr_intervals[valley - 1] - pulse_data.rr_intervals[valley - 2];
-            diff *= diff;
-
-            if (diff_idx < MAX_PEAKS - 1) {
-                pulse_data.succ_diff[diff_idx++] = diff;
-                pulse_data.num_of_diffs++;
-                if (debug_hr_features)
-                    ESP_LOGI(TAG, "diff: %d", diff);
-            } else {
-                ESP_LOGI(TAG, "succ_diff array full!");
-            }
-        }
-    }
-    return pulse_data;
-}
-
-/*
-//PE MODEL WITH CENTROID CALCULATION FOR BETTER RR INTERVALS
-static heart_beat_stats_t calculate_rr_intervals(signal_data_t *data, raw_data_t history[], uint16_t
-window_size)
-{
-    heart_beat_stats_t pulse_data = {0};
-
-    float centroids[MAX_PEAKS] = {0};
-
-    // Calculate centroid for every peak
-    for (int i = 0; i < data->peaks_count; i++) {
-        centroids[i] = calculate_centroid(history, data->peaks_idx[i], PEAK_WINDOW, window_size);
-    }
-
-    uint16_t diff_idx = 0;
-
-    // Calculate RR/IBI ( ms)
-    for (int i = 1; i < data->peaks_count; i++) {
-        uint16_t first_index = centroids[i];
-        uint16_t second_index = centroids[i - 1];
-
-        int64_t time_diff_us = history[second_index].timestamp - history[first_index].timestamp;
-
-        float interval_ms = time_diff_us * 1000.0f;
-
-        pulse_data.rr_intervals[i - 1] = interval_ms;
-
-        if (debug_hr_features) {
-            ESP_LOGI(TAG, "RR[%d]: %.2f ms", i - 1, interval_ms);
-        }
-    }
-
-    return pulse_data;
-}*/
-
-static void calculate_rmssd(heart_beat_stats_t *data)
-{
-    int32_t total_sum = 0.0f;
-    for (int i = 0; i < data->num_of_diffs; i++) {
-        total_sum += data->succ_diff[i];
-    }
-
-    data->diff_mean = (float)total_sum / data->num_of_diffs;
-    data->rmssd = (float)sqrt(data->diff_mean);
-    if (debug_hr_features) {
-        ESP_LOGI(TAG, "Sum: %.2f Diffs: %u", total_sum, data->num_of_diffs);
-        ESP_LOGI(TAG, "Diff-Mean: %.3f", data->diff_mean);
-    }
-}
-
-static void calculate_heart_rate(heart_beat_stats_t *hb_data, signal_data_t *s_data, uint16_t sampling_rate,
-                                 raw_data_t history[])
-{
-    if (s_data->valley_count > 2) {
-        uint16_t first_beat_index = 0, last_beat_index = 0;
-        first_beat_index = s_data->valley_idx[0];
-        int64_t t_first_beat = history[first_beat_index].time_stamp;
-        last_beat_index = s_data->valley_idx[s_data->valley_count - 1];
-        int64_t t_last_beat = history[last_beat_index].time_stamp;
-        int64_t duration_us = t_last_beat - t_first_beat;
-
-        float duration_sec = (float)duration_us / 1000000.0f;
-        ESP_LOGI(TAG, "First_t: %lld Last_t: %lld Duration_us: %llu Duration_sec: %.2f", t_first_beat,
-                 t_last_beat, duration_us, duration_sec);
-        hb_data->avg_hr = (float)((s_data->valley_count - 1) / duration_sec) * SECONDS_PER_MINUTE;
-    } else {
-        ESP_LOGI(TAG, "Not enough valleys for heartrate calculations!");
-    }
-}
-
-static void calculate_sdnn(heart_beat_stats_t *hb_data, signal_data_t *s_data)
-{
-    uint8_t intervals = s_data->peaks_count - 1;
-    if (intervals < 2) {
-        printf("Not enough peaks to calculate sdnn!");
-        return;
-    }
-    // Sum up HR-intervals
-    double sum = 0;
-    for (int i = 0; i < intervals; i++) {
-        sum += hb_data->rr_intervals[i];
-        // ESP_LOGI(TAG, "interv: %.2f sum: %.2f", hb_data->rr_intervals[i], sum);
-    }
-
-    float mean = (float)sum / intervals;
-    // ESP_LOGI(TAG, "mean: %.2f sum: %.2f intervals: %u", mean, sum, intervals);
-
-    double sum_sq_diff = 0;
-    for (int i = 0; i < intervals; i++) {
-        float dev = hb_data->rr_intervals[i] - mean;
-        sum_sq_diff += (double)(dev * dev);
-    }
-
-    if (intervals != 0) {
-        hb_data->sdnn = sqrt(sum_sq_diff / intervals);
-    }
-}
-static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
+static peak_data_t peak_detector(raw_data_t history[], uint16_t window_size)
 {
     enum SignalState signal_position;
 
-    // Adaptive threshold start values
-    // ppg_filter + normalization ppg_processing makes values +- 2 to +- 10
-    float running_peak_avg = 5.0f;
-    float dynamic_threshold = 2.0f;
+    float running_peak_avg = 100.0f;
+    float dynamic_threshold = 30.0f;
 
     // Init state
     if (history[0].ppg_filtered > 0) {
@@ -346,17 +119,14 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
         signal_position = BELOW;
     }
 
-    signal_data_t window_data = {0};
-    window_data.local_min = 100.0f;
-    window_data.local_max = -100.0f;
+    peak_data_t window_data = {0};
+    window_data.local_max = -FLT_MAX;
 
     for (int i = 1; i < window_size; i++) {
 
         float sample = history[i].ppg_filtered;
 
         // ABOVE → BELOW peak done.
-        // jitterTH maybe change to 0.5 if signal around 2
-
         if ((signal_position == ABOVE) && (sample < -JITTER_THRESHOLD_ZERO_CROSSING)) {
 
             window_data.zero_crossings++;
@@ -365,7 +135,7 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
             uint16_t current_peak = window_data.current_max_index;
 
             // Check threshold, big enough to be a peak.
-            if (window_data.local_max > dynamic_threshold) {
+            if (window_data.local_max > dynamic_threshold && window_data.local_max < MAX_PEAK_FOR_HEARTRATE) {
 
                 // timing (refractory period)
                 bool beat_detected_too_fast =
@@ -375,13 +145,7 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
 
                 // Peak found.
                 if (!beat_detected_too_fast && window_data.peaks_count < MAX_PEAKS - 2) {
-
-                    // Save peak index
                     window_data.peaks_idx[window_data.peaks_count++] = current_peak;
-
-                    // Logging for debugging
-                    ESP_LOGI(TAG, "Peak idx: %u Value: %.2f Threshold: %.2f", current_peak,
-                             window_data.local_max, dynamic_threshold);
 
                     // Exponential Moving Average (EMA).
                     // 0.9 of old value + 0.1 of new value (current peak) moving towards the new peak value
@@ -405,7 +169,6 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
         }
 
         // FALL: BELOW → ABOVE (start new peak)
-
         else if ((signal_position == BELOW) && (sample > JITTER_THRESHOLD_ZERO_CROSSING)) {
 
             window_data.zero_crossings++;
@@ -417,7 +180,6 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
         }
 
         // Save MAX
-
         if ((signal_position == ABOVE) && (sample > window_data.local_max)) {
 
             window_data.local_max = sample;
@@ -428,118 +190,125 @@ static signal_data_t peak_detector(raw_data_t history[], uint16_t window_size)
     return window_data;
 }
 
-static bool is_signal_data_valid(signal_data_t *data)
+static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_data, raw_data_t *history)
 {
-    if (data->peaks_count < 3) {
-        ESP_LOGI(TAG, "Insufficient peaks found! Peaks: %u", data->peaks_count);
-        return false;
+
+    uint16_t first_beat_idx = 0, last_beat_idx = 0;
+    if (s_data->peaks_count >= MIN_PEAK_FOR_HEARTRATE) {
+        first_beat_idx = s_data->peaks_idx[0];
+        last_beat_idx = s_data->peaks_idx[s_data->peaks_count - 1];
+
+        int64_t t_first_beat = 0, t_last_beat = 0;
+        int64_t duration_us = 0;
+        float duration_sec = 0;
+        t_first_beat = history[first_beat_idx].time_stamp;
+        t_last_beat = history[last_beat_idx].time_stamp;
+
+        duration_us = t_last_beat - t_first_beat;
+        duration_sec = duration_us / 1000000.0f;
+
+        uint16_t intervals = (s_data->peaks_count - 1);
+
+        hb_data->avg_hr = (float)(intervals / duration_sec) * SECONDS_PER_MINUTE;
+        if (debug_show_first_last_peaks)
+            ESP_LOGI(TAG, "First: %u Last: %u Duration: %.2f Heartbeat: %.1f", first_beat_idx, last_beat_idx,
+                     duration_sec, hb_data->avg_hr);
     }
-
-    uint16_t double_peaks = 0;
-    for (int peak = 1; peak < data->peaks_count; peak++) {
-
-        uint16_t inverval_samples = data->peaks_idx[peak] - data->peaks_idx[peak - 1];
-
-        // Larger gap than 1,5 seconds
-        if (inverval_samples > TOO_MUCH_TIME_BETWEEN_HEARTBEATS) {
-            ESP_LOGI(TAG, "Too much time between peaks at index %u! Sample interval: %u",
-                     data->peaks_idx[peak], inverval_samples);
-            return false;
-        } else if (inverval_samples < TOO_LITTLE_TIME_BETWEEN_HEARTBEATS) {
-            ESP_LOGI(TAG, "Too short amount of time between peaks! Sample interval: %u", inverval_samples);
-            return false;
-        }
-    }
-    return true;
 }
 
-static float calculate_centroid(raw_data_t history[], int peak_index, int window_size, int signal_length)
+static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
+                                                 uint16_t window_size)
 {
-    // peak_index = max peak index, window size = 5
+    heart_beat_stats_t pulse_data = {0};
 
-    int start = peak_index - window_size;
-    int end = peak_index + window_size;
+    // Calculate RR/IBI ( ms)
+    for (int i = 1; i < data->peaks_count; i++) {
 
-    // Boundary checks
+        int64_t sample_a_idx = data->peaks_idx[i - 1];
+        int64_t sample_b_idx = data->peaks_idx[i];
 
-    if (start < 0)
-        start = 0;
-    if (end >= signal_length)
-        end = signal_length - 1;
-
-    // Calculate values for centriod based on index and values
-
-    float weighted_sum = 0.0f;
-    float amplitude_sum = 0.0f;
-
-    for (int i = start; i <= end; i++) {
-        float val = history[i].ppg_filtered;
-
-        if (val > 0.0f) {
-            weighted_sum += i * val;
-            amplitude_sum += val;
+        int64_t time_diff_us = history[sample_b_idx].time_stamp - history[sample_a_idx].time_stamp;
+        float interval_ms = time_diff_us / 1000.0f;
+        if (interval_ms < MAX_VALID_RR_MS && interval_ms > MIN_VALID_RR_MS) {
+            pulse_data.rr_intervals[i - 1] = interval_ms;
+        } else {
+            pulse_data.rr_intervals[i - 1] = BASELINE_RR_MS;
         }
     }
 
-    if (amplitude_sum == 0.0f) {
-        return (float)peak_index;
-    }
-    // index for centriod. Use to calculate IBI/RR
-    return weighted_sum / amplitude_sum;
+    return pulse_data;
 }
 
-/*
-Starting up
- - Wait until we have atleast MINIMUM_AMOUNT_OF_DATA before we extract features. Process partial array
- - When 30 seconds of data arrived window
+static void calculate_sdnn(heart_beat_stats_t *hb_data, peak_data_t *s_data)
+{
+    int8_t intervals = s_data->peaks_count - 1;
+    if (intervals < MIN_PEAKS_FOR_SDNN) {
+        hb_data->sdnn = 0.0f;
+        return;
+    }
 
-Data quality
- - Calculate quality of signal. If signal is not good, skip feature extraction.
-   Using statistical measurements
+    // Sum up HR-intervals
+    double sum = 0;
+    uint8_t valid_count = 0;
+    for (int i = 0; i < intervals; i++) {
+        if (hb_data->rr_intervals[i] > 0) {
+            sum += hb_data->rr_intervals[i];
+            valid_count++;
+        }
+    }
+    hb_data->num_of_intervals = valid_count;
 
-Time domain
-Systolic peaks = Big heartbeats
-Diastolic notch = small coupled with systolic
+    if (valid_count < 2) {
+        hb_data->sdnn = 0.0f;
+        return;
+    }
 
-Zero-crossing state - Reset logic when crossing the 0 value.
+    float mean = (float)(sum / (intervals - 1));
 
-Noise resilience
- Look at three points. Keep comparing the three to each other. When the middle is the highest, peak found.
- Noise can complicate the algorithm
- Create a threshold of the ampliture. The beat has to be above a certain level to be counted.
- Once a beat is detected, we blind the algorithm for a short duration to prevent double detections.
- For example the dicrotic notch.
+    hb_data->sdnn = 0;
+    double sum_sq_diff = 0;
+    for (int i = 0; i < intervals; i++) {
+        if (hb_data->rr_intervals[i] > 0) {
+            float dev = hb_data->rr_intervals[i] - mean;
+            sum_sq_diff += (double)(dev * dev);
+        }
+    }
+    hb_data->sdnn = sqrtf((float)sum_sq_diff / valid_count);
+}
 
- Search strategy
-  - Find slope
-  - Validation
-    1. value high enough?
-    2. enough time passed?
-    3. is slope rise consistent with a heartbeat peak?
-*/
+static void calculate_rmssd(heart_beat_stats_t *data)
+{
+    if (data->num_of_intervals < 1) {
+        data->rmssd = 0.0f;
+        return;
+    }
 
-/*
-Signal Quality
-    Amplitude bounds
-     P - P < lowthreshold = No skin contact
-     P - P > High = Too much skin pressure
+    for (int i = 0; i < MAX_PEAKS - 1; i++) {
+        float current_rr = data->rr_intervals[i];
+        float next_rr = data->rr_intervals[i + 1];
 
-    Zero-crossing Rate (Noise Detector)
-     Normal:1-4 crossings
-     High noise: 15+
-     Counting how many times the signal crosses the 0 boundrary
+        // Only calculate if BOTH intervals are non-zero/valid
+        if (current_rr > 0 && next_rr > 0) {
+            float diff = next_rr - current_rr;
+            if (fabsf(diff) < MAX_DIFF_MS_HEARTBEATS) {
+                data->succ_diff[data->num_of_diffs] = (int32_t)diff;
+                data->num_of_diffs++;
+            }
+        }
+    }
 
-    Standard deviation
-     If current std is much higher than rest of window, the
-     user most likely moved.
+    double sum_squared_diffs = 0.0;
+    uint16_t actual_diffs = 0;
+    for (int i = 0; i < data->num_of_intervals; i++) {
+        float diff = data->succ_diff[i];
+        sum_squared_diffs += (double)(diff * diff);
+        actual_diffs++;
+    }
 
-    Slope consistency
-     If the change between two points is inhumanely large, flag
-     the sample as invalid.
-
-    Quality Map
-     Keep a separate array that keeps track of the quality of
-     the data in the 1 second window. A bad window can be
-     excluded from the feature extraction.
-
-*/
+    if (actual_diffs > 0) {
+        float mean_square = (float)(sum_squared_diffs / actual_diffs);
+        data->rmssd = sqrtf(mean_square);
+    } else {
+        data->rmssd = 0.0f;
+    }
+}
