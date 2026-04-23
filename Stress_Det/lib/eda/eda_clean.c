@@ -1,3 +1,50 @@
+/*
+//2:nd order Butterworth low-pass filter for EDA signal cleaning
+#include "eda_clean.h"
+
+// Biquad structure (Direct Form II)
+typedef struct {
+    float b0, b1, b2;
+    float a1, a2;
+    float z1, z2;
+} biquad_t;
+
+// Single biquad (2nd order Butterworth)
+static biquad_t s1;
+
+// Process one biquad
+static float biquad_process(biquad_t *s, float x)
+{
+    float y = s->b0 * x + s->z1;
+    s->z1 = s->b1 * x - s->a1 * y + s->z2;
+    s->z2 = s->b2 * x - s->a2 * y;
+    return y;
+}
+
+// Initialize filter
+void eda_clean_init(void)
+{
+    // 2nd order Butterworth Low-pass
+    // fs = 200 Hz, fc = 5 Hz
+
+    s1.b0 = 0.02008337f;
+    s1.b1 = 0.04016673f;
+    s1.b2 = 0.02008337f;
+    s1.a1 = -1.56101808f;
+    s1.a2 = 0.64135154f;
+
+    s1.z1 = 0.0f;
+    s1.z2 = 0.0f;
+}
+
+// Process sample
+float eda_clean_process(float x)
+{
+    return biquad_process(&s1, x);
+}*/
+
+// 4:th order Butterworth low-pass filter for EDA signal cleaning
+// Same as NK
 #include "eda_clean.h"
 
 // Biquad structure (Direct Form II)

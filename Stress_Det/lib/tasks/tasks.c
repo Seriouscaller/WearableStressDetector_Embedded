@@ -18,6 +18,9 @@
 #include "storage.h"
 #include <stdio.h>
 
+#include "eda_clean.h"
+#include "eda_filter.h"
+
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
 
@@ -59,12 +62,12 @@ void sensor_sampling_task(void *pvParameters)
         if (is_sampling_active) {
 
             raw_data_t current_sample = {0};
+            bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
 
             if (max30101_get_fifo_count(*sensors->max_handle, &samples_available) == ESP_OK) {
                 for (int i = 0; i < samples_available; i++) {
                     bool ppg_ok =
                         (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
-                    bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
 
                     if (ppg_ok && gsr_ok) {
                         current_sample.ppg_filtered = ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
@@ -342,13 +345,38 @@ static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_sa
     }
 }
 
-void telemetry_task(void *pvParameters)
+/*void telemetry_task(void *pvParameters)
 {
     raw_data_t sample;
     while (1) {
         if (xQueueReceive(telemetry_queue, &sample, portMAX_DELAY)) {
             printf(">Raw:%lu\n", sample.ppg_raw);
             printf(">Filt:%.2f\n", sample.ppg_filtered);
+            printf(">Raw:%lu\n", sample.gsr);
+
+        }
+    }
+}*/
+void telemetry_task(void *pvParameters)
+{
+    raw_data_t sample;
+
+    eda_clean_init();
+    eda_filter_init();
+
+    while (1) {
+        if (xQueueReceive(telemetry_queue, &sample, portMAX_DELAY)) {
+
+            float gsr_scaled = ((float)sample.gsr / 4095.0f) * 3.3f;
+
+            float clean = eda_clean_process(gsr_scaled);
+            eda_filter_process(clean);
+
+            // float tonic = eda_get_tonic();
+            float phasic = eda_get_phasic();
+
+            ESP_LOGI(TAG, ">raw:%u\n>scaled:%.4f\n>clean:%.4f\n>phasic:%.4f", sample.gsr, gsr_scaled, clean,
+                     phasic);
         }
     }
 }

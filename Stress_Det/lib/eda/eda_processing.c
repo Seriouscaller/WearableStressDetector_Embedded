@@ -4,7 +4,7 @@
 #include "eda_peaks.h"
 
 #define FS 200
-#define WINDOW_SEC 30
+#define WINDOW_SEC 60
 #define MAX_EDA (FS * WINDOW_SEC)
 
 typedef struct {
@@ -22,7 +22,7 @@ static eda_features_t features;
 
 void eda_processing_init()
 {
-    eda_clean_init(); // ✅ viktigt
+    eda_clean_init();
     eda_filter_init();
     eda_peaks_init();
 
