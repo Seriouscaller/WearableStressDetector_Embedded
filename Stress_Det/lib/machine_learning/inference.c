@@ -20,10 +20,14 @@ int classify_stress(som_input_t *features)
 {
     /* Real data
     float input[SOM_INPUT_LEN] = {features->hr,  features->hrv_rmssd, features->hrv_sdnn,
-                                  features->scr, features->tonic,     features->phasic};*/
+                        (          features->scr, features->tonic,     features->phasic};*/
 
     /* Test data */
     // float input[SOM_INPUT_LEN] = {-11.11f, 11.11f, -11.11f, 11.11f, 11.11f, 11.11f};
+
+    if ((features->hr == 0) || features->hrv_rmssd == 0) {
+        return -1;
+    }
 
     float input[SOM_INPUT_LEN] = {features->hr, features->hrv_rmssd, features->hrv_sdnn};
 

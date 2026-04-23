@@ -23,7 +23,7 @@
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
 #define WINDOW_STEP_SIZE_SEC 1
-#define MOVEMENT_THRESHOLD 4.0f
+#define MOVEMENT_THRESHOLD 8.0f
 #define MOTION_COOLDOWN_SAMPLES 300
 
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
