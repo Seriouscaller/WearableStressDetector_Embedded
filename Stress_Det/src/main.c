@@ -29,7 +29,6 @@ extern QueueHandle_t telemetry_queue;
 extern RingbufHandle_t raw_data_ringbuf;
 extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
-extern SemaphoreHandle_t imu_data_mutex;
 extern device_control_t device_config;
 
 i2c_master_bus_handle_t bus_handle = NULL;
@@ -53,12 +52,6 @@ void app_main(void)
     experiment_phase_mutex = xSemaphoreCreateMutex();
     if (experiment_phase_mutex == NULL) {
         ESP_LOGE(TAG, "experiment_phase_mutex, failed to create Mutex!");
-        return;
-    }
-
-    imu_data_mutex = xSemaphoreCreateMutex();
-    if (imu_data_mutex == NULL) {
-        ESP_LOGE(TAG, "bmi_data_mutex, failed to create Mutex!");
         return;
     }
 
@@ -86,7 +79,7 @@ void app_main(void)
     if (device_config.enable_imu)
         ESP_ERROR_CHECK(bmi260_init(bus_handle, &bmi_handle));
 
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(400));
 
     // Initialize I2C-sensors
     if (device_config.enable_temp)
@@ -111,7 +104,5 @@ void app_main(void)
 
     xTaskCreatePinnedToCore(telemetry_task, "telem", 4 * 1024, NULL, 2, NULL, 1);
     xTaskCreatePinnedToCore(battery_task, "battery", 4 * 1024, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(imu_sampling_task, "imu_smpl", 4 * 1024, NULL, 3, NULL, 0);
-
     return;
 }
