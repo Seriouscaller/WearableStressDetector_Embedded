@@ -97,16 +97,6 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
         printf(">Peaks:%u\n>HR:%.0f\n>Clean Data Ratio:%.0f\n>rmssd:%.1f\n", peak_data.peaks_count,
                heart_beat_data.avg_hr, clean_data_percentage, heart_beat_data.rmssd);
 
-    /*
-    peak_data_t peak_data = peak_detector(history, window_size);
-    heart_beat_stats_t heart_beat_data = calculate_rr_intervals(&peak_data, history, window_size);
-    calculate_heart_rate(&heart_beat_data, &peak_data, history);
-    calculate_rmssd(&heart_beat_data);*/
-    /*
-    if (debug_show_heartbeat_stats)
-        printf(">Peaks:%u\n>HR:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count, heart_beat_data.avg_hr,
-               heart_beat_data.rmssd);*/
-
     features.hr = heart_beat_data.avg_hr;
     features.hrv_rmssd = heart_beat_data.rmssd;
 
@@ -242,7 +232,6 @@ static int64_t sum_invalid_data_us(raw_data_t history[], uint16_t window_size)
         total_invalid_us += (history[window_size - 1].time_stamp - block_start_time);
     }
 
-    // Convert microseconds to milliseconds
     return total_invalid_us;
 }
 

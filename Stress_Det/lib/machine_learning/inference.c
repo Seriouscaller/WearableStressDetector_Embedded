@@ -9,7 +9,7 @@
 // HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
 
 #define SOM_NEURONS 900
-#define SOM_INPUT_LEN 3
+#define SOM_INPUT_LEN 5
 bool debug_som = true;
 
 static void normalize(float *input, float *scaled_output);
@@ -29,7 +29,8 @@ int classify_stress(som_input_t *features)
         return -1;
     }
 
-    float input[SOM_INPUT_LEN] = {features->hr, features->hrv_rmssd, features->hrv_sdnn};
+    float input[SOM_INPUT_LEN] = {features->hr, features->hrv_rmssd, features->scr, features->tonic,
+                                  features->phasic};
 
     // Normalization
     float scaled_output[SOM_INPUT_LEN] = {0};

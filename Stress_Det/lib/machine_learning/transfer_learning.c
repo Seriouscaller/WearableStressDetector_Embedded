@@ -74,9 +74,8 @@ void display_data(learning_t *trainer)
 {
     for (int i = 0; i < trainer->num_of_samples; i++) {
         som_input_transfer_learning_t smpl = trainer->training_data[i];
-        ESP_LOGI(TAG, "[%u] hr:%.2f rmssd:%.2f sdnn:%.2f scr:%.2f ton:%.2f pha:%.2f", i, smpl.features.hr,
-                 smpl.features.hrv_rmssd, smpl.features.hrv_sdnn, smpl.features.scr, smpl.features.tonic,
-                 smpl.features.phasic);
+        ESP_LOGI(TAG, "[%u] hr:%.2f rmssd:%.2f scr:%.2f ton:%.2f pha:%.2f", i, smpl.features.hr,
+                 smpl.features.hrv_rmssd, smpl.features.scr, smpl.features.tonic, smpl.features.phasic);
     }
 }
 

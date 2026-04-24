@@ -29,7 +29,6 @@ extern QueueHandle_t telemetry_queue;
 extern RingbufHandle_t raw_data_ringbuf;
 extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
-extern SemaphoreHandle_t imu_data_mutex;
 extern device_control_t device_config;
 
 i2c_master_bus_handle_t bus_handle = NULL;
@@ -53,12 +52,6 @@ void app_main(void)
     experiment_phase_mutex = xSemaphoreCreateMutex();
     if (experiment_phase_mutex == NULL) {
         ESP_LOGE(TAG, "experiment_phase_mutex, failed to create Mutex!");
-        return;
-    }
-
-    imu_data_mutex = xSemaphoreCreateMutex();
-    if (imu_data_mutex == NULL) {
-        ESP_LOGE(TAG, "bmi_data_mutex, failed to create Mutex!");
         return;
     }
 

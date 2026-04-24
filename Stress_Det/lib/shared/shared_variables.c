@@ -28,7 +28,6 @@ volatile uint8_t current_experiment_phase = 255;
 
 SemaphoreHandle_t experiment_phase_mutex = NULL;
 SemaphoreHandle_t ble_payload_mutex = NULL;
-SemaphoreHandle_t imu_data_mutex = NULL;
 
 // PPG/GSR Processing
 raw_data_t processing_buffer[WINDOW_SIZE]; // 30 seconds of data approx 12 KB in RAM

@@ -3,8 +3,8 @@
       {
          "type": "chart",
          "gridPos": {
-            "h": 6,
-            "w": 6,
+            "h": 3,
+            "w": 3,
             "x": 0,
             "y": 0
          },
@@ -17,7 +17,7 @@
                "formula": "",
                "options": {
                   "_serie": "Movement",
-                  "_id": "data-serie-17",
+                  "_id": "data-serie-7",
                   "stroke": "rgba(231,76,60,1)",
                   "fill": "rgba(231,76,60,0.1)"
                },
@@ -29,7 +29,7 @@
          "type": "chart",
          "gridPos": {
             "h": 6,
-            "w": 6,
+            "w": 5,
             "x": 0,
             "y": 0
          },
@@ -42,7 +42,7 @@
                "formula": "",
                "options": {
                   "_serie": "Filt",
-                  "_id": "data-serie-16",
+                  "_id": "data-serie-8",
                   "stroke": "rgba(231,76,60,1)",
                   "fill": "rgba(231,76,60,0.1)"
                },
@@ -54,7 +54,7 @@
          "type": "chart",
          "gridPos": {
             "h": 6,
-            "w": 6,
+            "w": 4,
             "x": 0,
             "y": 0
          },
@@ -67,7 +67,7 @@
                "formula": "",
                "options": {
                   "_serie": "Raw",
-                  "_id": "data-serie-15",
+                  "_id": "data-serie-9",
                   "stroke": "rgba(231,76,60,1)",
                   "fill": "rgba(231,76,60,0.1)"
                },
@@ -196,5 +196,5 @@
          "precision_mode": 0
       }
    ],
-   "viewDuration": "5"
+   "viewDuration": "10"
 }
