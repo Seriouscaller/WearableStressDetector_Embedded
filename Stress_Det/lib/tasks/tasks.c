@@ -53,6 +53,7 @@ extern i2c_master_dev_handle_t bmi_handle;
 extern i2c_master_dev_handle_t max_handle;
 extern spi_device_handle_t gsr_handle;
 extern bmi_data_t imu_data;
+extern float battery_percentage;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -269,10 +270,11 @@ void battery_task(void *pvParameters)
     static int voltage_mV;
 
     while (1) {
-        vTaskDelay(pdTICKS_TO_MS(BATTERY_SAMPLING_INTERVAL_MS));
+        vTaskDelay(pdMS_TO_TICKS(BATTERY_SAMPLING_INTERVAL_MS));
         esp_err_t ret = read_battery_voltage(&adc1_handle, &adc1_cali_chan0_handle, &adc_raw, &voltage_mV);
         if (ret == ESP_OK) {
             log_battery_voltage(&adc_raw, &voltage_mV);
+            printf(">Battery Charge:%.0f\n", battery_percentage);
         } else {
             ESP_LOGE(TAG, "Failed to read battery Voltage!");
         }
