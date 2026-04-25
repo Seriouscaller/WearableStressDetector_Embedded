@@ -3,15 +3,18 @@
 
 #define FS 200.0f
 
-static float b0 = 0.99843f;
-static float b1 = -1.99686f;
-static float b2 = 0.99843f;
-static float a1 = -1.99685f;
-static float a2 = 0.99687f;
+static float b0 = 0.9995066f;
+static float b1 = -1.9990132f;
+static float b2 = 0.9995066f;
+static float a1 = -1.9990129f;
+static float a2 = 0.9990135f;
 
 static float z1 = 0.0f, z2 = 0.0f;
 static float mean = 0.0f;
 static float phasic = 0.0f;
+static float tonic = 0.0f;
+static float phasic_smooth = 0.0f;
+static int tonic_initialized = 0;
 
 // Init
 void eda_filter_init(void)
@@ -20,14 +23,21 @@ void eda_filter_init(void)
     z2 = 0;
     mean = 0;
     phasic = 0;
+    tonic = 0;
+    phasic_smooth = 0;
+    tonic_initialized = 0;
 }
 
 // Process
 void eda_filter_process(float x)
 {
-    // ===== CENTERING =====
-    mean += 0.01f * (x - mean);
-    float centered = x - mean;
+    if (!tonic_initialized) {
+        tonic = x; // Initialize tonic with the first sample
+        tonic_initialized = 1;
+    }
+
+    tonic += 0.00005f * (x - tonic); // Simple IIR for tonic estimation
+    float centered = x - tonic;
 
     // ===== BIQUAD HPF =====
     float y = b0 * centered + z1;
@@ -35,6 +45,9 @@ void eda_filter_process(float x)
     z2 = b2 * centered - a2 * y;
 
     phasic = y;
+
+    phasic_smooth += 0.1f * (phasic - phasic_smooth); // Smooth the phasic component
+    phasic = phasic_smooth;
 
     // ===== CLAMP =====
     if (phasic < 0.0f)

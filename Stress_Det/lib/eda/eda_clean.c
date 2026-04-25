@@ -47,6 +47,8 @@ float eda_clean_process(float x)
 // Same as NK
 #include "eda_clean.h"
 
+static int clean_initialized = 0;
+
 // Biquad structure (Direct Form II)
 typedef struct {
     float b0, b1, b2;
@@ -66,7 +68,7 @@ static float biquad_process(biquad_t *s, float x)
     return y;
 }
 
-void eda_clean_init(void)
+void eda_clean_init(float first_sample)
 {
     // Butterworth Low-pass
     // fs = 200 Hz, fc = 3 Hz, order = 4
@@ -80,18 +82,26 @@ void eda_clean_init(void)
     s1.z1 = 0.0f;
     s1.z2 = 0.0f;
 
+    s1.z1 = first_sample;
+    s1.z2 = first_sample;
+
     // Stage 2
     s2.b0 = 0.0009447f;
     s2.b1 = 0.0018894f;
     s2.b2 = 0.0009447f;
     s2.a1 = -1.822694f;
     s2.a2 = 0.837181f;
-    s2.z1 = 0.0f;
-    s2.z2 = 0.0f;
+    s2.z1 = first_sample;
+    s2.z2 = first_sample;
 }
 
 float eda_clean_process(float x)
 {
+    if (!clean_initialized) {
+        eda_clean_init(x); 
+        clean_initialized = 1;
+    }
+
     float y = biquad_process(&s1, x);
     y = biquad_process(&s2, y);
     return y;

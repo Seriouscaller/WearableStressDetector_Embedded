@@ -1,64 +1,84 @@
 #include "eda_peaks.h"
-#include <math.h>
 
-#define AMP_THRESHOLD 0.01f
-#define REFRACTORY_SEC 1.0f
+#define WINDOW_SEC 60.0f    // NeuroKit-style window
+#define REFRACTORY_SEC 1.0f // minimum time between peaks
 
-typedef enum { SCR_IDLE, SCR_RISING } scr_state_t;
+static float fs = 200.0f;
 
-static scr_state_t state;
-static float onset_value;
-static float peak_value;
-static float last_peak_time;
+// Peak detection state
+static float prev = 0.0f;
+static float curr = 0.0f;
+static float next = 0.0f;
 
-void eda_peaks_init()
+static int initialized = 0;
+
+// Threshold (can tune later)
+static float threshold = 0.003f;
+
+// Refractory
+static int refractory_samples = 0;
+static int refractory_limit = 0;
+
+// SC_RR
+static int scr_count = 0;
+static int window_samples = 0;
+static int window_size = 0;
+
+// Init
+void eda_peaks_init(float sampling_rate)
 {
-    state = SCR_IDLE;
-    onset_value = 0;
-    peak_value = 0;
-    last_peak_time = -10.0f;
+    fs = sampling_rate;
+
+    refractory_limit = (int)(REFRACTORY_SEC * fs);
+    window_size = (int)(WINDOW_SEC * fs);
+
+    prev = curr = next = 0.0f;
+    initialized = 0;
+
+    refractory_samples = refractory_limit;
+    scr_count = 0;
+    window_samples = 0;
 }
 
-int eda_detect_scr(float phasic, float time)
+// Process one sample
+void eda_peaks_process(float phasic)
 {
-    static float prev = 0;
-    int scr = 0;
+    // shift buffer
+    prev = curr;
+    curr = next;
+    next = phasic;
 
-    float diff = phasic - prev;
-
-    switch (state) {
-    case SCR_IDLE:
-        // Detect start of rise
-        if (diff > 0.001f) {
-            state = SCR_RISING;
-            onset_value = phasic;
-            peak_value = phasic;
-        }
-        break;
-
-    case SCR_RISING:
-        // Track peak
-        if (phasic > peak_value) {
-            peak_value = phasic;
-        }
-
-        // Peak reached (slope goes negative)
-        if (diff < 0) {
-            float amplitude = fabsf(peak_value - onset_value);
-
-            int valid_amp = (amplitude > AMP_THRESHOLD);
-            int valid_time = ((time - last_peak_time) > REFRACTORY_SEC);
-
-            if (valid_amp && valid_time) {
-                scr = 1;
-                last_peak_time = time;
-            }
-
-            state = SCR_IDLE;
-        }
-        break;
+    if (!initialized) {
+        initialized = 1;
+        return;
     }
 
-    prev = phasic;
-    return scr;
+    // refractory countdown
+    if (refractory_samples < refractory_limit)
+        refractory_samples++;
+
+    // peak detection
+    if (curr > prev && curr > next && curr > threshold && refractory_samples >= refractory_limit) {
+        scr_count++;
+        refractory_samples = 0;
+    }
+
+    // window tracking
+    window_samples++;
+    if (window_samples >= window_size) {
+        window_samples = 0;
+        scr_count = 0; // reset every window (sliding kan göras senare)
+    }
+}
+
+// SC_RR (peaks per second)
+float eda_get_scr_rate(void)
+{
+    return (float)scr_count / WINDOW_SEC;
+}
+
+// optional
+int eda_get_scr_count(void)
+{
+    return scr_count;
 }

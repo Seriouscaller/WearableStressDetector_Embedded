@@ -2,7 +2,7 @@
 #include "bmi260.h"
 #include "board_config.h"
 #include "driver/i2c_master.h"
-#include "eda_processing.h"
+
 #include "esp_log.h"
 #include "freertos/ringbuf.h"
 #include "gsr.h"

@@ -1,6 +1,7 @@
 #include "adc.h"
 #include "board_config.h"
-#include "eda_processing.h"
+#include "data_subset.h"
+
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
@@ -20,6 +21,7 @@
 
 #include "eda_clean.h"
 #include "eda_filter.h"
+#include "eda_peaks.h"
 
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
@@ -137,6 +139,28 @@ void feature_extraction_task(void *pvParameters)
             }
 
             som_input_t features = calculate_features(history, WINDOW_SIZE);
+
+            eda_filter_init();
+
+            int initialized = 0;
+
+            /*for (int i = 0; i < 12000; i++) {
+                float gsr_scaled = (eda_sensor_data[i] / 4095.0f) * 3.3f;
+
+                if (!initialized) {
+                    eda_clean_init(gsr_scaled);
+                    initialized = 1;
+                }
+
+                float clean = eda_clean_process(gsr_scaled);
+                eda_filter_process(clean);
+
+                float phasic = eda_get_phasic();
+
+                // ESP_LOGI(TAG, "scale: %.3f clean: %.3f phasic: %.3f", gsr_scaled, clean, phasic);
+                // printf(">scale: %.3f\n>clean: %.3f\n>phasic: %.3f\n", gsr_scaled, clean, phasic);
+                printf(">eda raw: %.3f\n", eda_sensor_data[i]);
+            }*/
 
             // Inference using SOM model. Outputs class as single digit
             uint8_t result = classify_stress(&features);
@@ -361,8 +385,8 @@ void telemetry_task(void *pvParameters)
 {
     raw_data_t sample;
 
-    eda_clean_init();
     eda_filter_init();
+    eda_peaks_init(200.0f);
 
     while (1) {
         if (xQueueReceive(telemetry_queue, &sample, portMAX_DELAY)) {
@@ -375,8 +399,13 @@ void telemetry_task(void *pvParameters)
             // float tonic = eda_get_tonic();
             float phasic = eda_get_phasic();
 
-            ESP_LOGI(TAG, ">raw:%u\n>scaled:%.4f\n>clean:%.4f\n>phasic:%.4f", sample.gsr, gsr_scaled, clean,
-                     phasic);
+            eda_peaks_process(phasic);
+
+            float scr_rate = eda_get_scr_rate();
+
+            printf(">raw:%u\n", sample.gsr);
+            printf(">phasic: %.4f\n>SC_RR: %.4f\n", phasic, scr_rate);
+            printf(">scale: %.3f\n>clean: %.3f\n>phasic: %.3f\n", gsr_scaled, clean, phasic);
         }
     }
 }
