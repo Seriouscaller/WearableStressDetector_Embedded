@@ -14,5 +14,5 @@ device_control_t device_config = {
     .enable_ppg = true,
     .enable_gsr = true,
     .enable_imu = true,
-    .enable_temp = false,
+    .enable_temp = true,
 };

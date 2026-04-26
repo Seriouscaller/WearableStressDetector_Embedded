@@ -17,6 +17,7 @@
 #include "shared_variables.h"
 #include "signal_processing.h"
 #include "storage.h"
+#include "tmp117.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -51,9 +52,11 @@ extern som_input_transfer_learning_t transfer_learning_buffer[];
 extern device_control_t device_config;
 extern i2c_master_dev_handle_t bmi_handle;
 extern i2c_master_dev_handle_t max_handle;
+extern i2c_master_dev_handle_t tmp_handle;
 extern spi_device_handle_t gsr_handle;
 extern bmi_data_t imu_data;
 extern float battery_percentage;
+extern float temperature;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -403,6 +406,20 @@ void telemetry_task(void *pvParameters)
             printf(">Raw:%lu\n", sample.ppg_raw);
             printf(">Filt:%.2f\n", sample.ppg_filtered);
             printf(">Movement:%d\n", sample.has_movement_artifact);
+        }
+    }
+}
+
+void temperature_task(void *pvParameters)
+{
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        esp_err_t ret = tmp117_read_temp(tmp_handle, &temperature);
+        if (ret == ESP_OK) {
+            printf(">Skin Temperature:%.1f\n", temperature);
+
+        } else {
+            ESP_LOGW(TAG, "temperature_task - Failed to read temp-sensor");
         }
     }
 }

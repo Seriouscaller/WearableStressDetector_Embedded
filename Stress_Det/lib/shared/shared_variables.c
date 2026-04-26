@@ -13,6 +13,7 @@ TaskHandle_t xFeatureExtractionTaskHandle = NULL;
 raw_data_t raw_data = {0};
 bmi_data_t imu_data = {0};
 float battery_percentage = 0.0f;
+float temperature = 0.0f;
 QueueHandle_t data_log_queue = NULL;
 QueueHandle_t telemetry_queue = NULL;
 RingbufHandle_t raw_data_ringbuf = NULL;

@@ -7,3 +7,4 @@ void ble_update_task(void *pvParameters);
 void battery_task(void *pvParameters);
 void telemetry_task(void *pvParameters);
 void imu_sampling_task(void *pvParameters);
+void temperature_task(void *pvParameters);
