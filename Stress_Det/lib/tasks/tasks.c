@@ -391,9 +391,14 @@ void telemetry_task(void *pvParameters)
     while (1) {
         if (xQueueReceive(telemetry_queue, &sample, portMAX_DELAY)) {
 
+            // Voltage scaling: 12-bit ADC, Vref = 3.3V
             float gsr_scaled = ((float)sample.gsr / 4095.0f) * 3.3f;
 
+            // 4:th order Butterworth bandpass filter
             float clean = eda_clean_process(gsr_scaled);
+
+            // Low-pass filter to extract tonic component and get phasic by subtracting tonic from clean
+            // signal
             eda_filter_process(clean);
 
             // float tonic = eda_get_tonic();

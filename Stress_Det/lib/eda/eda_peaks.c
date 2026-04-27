@@ -1,7 +1,7 @@
 #include "eda_peaks.h"
 
-#define WINDOW_SEC 60.0f    // NeuroKit-style window
-#define REFRACTORY_SEC 1.0f // minimum time between peaks
+#define WINDOW_SEC 60.0f
+#define REFRACTORY_SEC 1.0f
 
 static float fs = 200.0f;
 
@@ -67,17 +67,16 @@ void eda_peaks_process(float phasic)
     window_samples++;
     if (window_samples >= window_size) {
         window_samples = 0;
-        scr_count = 0; // reset every window (sliding kan göras senare)
+        scr_count = 0;
     }
 }
 
-// SC_RR (peaks per second)
+// SC_RR (peaks per second) same feature as SOM model uses for classification
 float eda_get_scr_rate(void)
 {
     return (float)scr_count / WINDOW_SEC;
 }
 
-// optional
 int eda_get_scr_count(void)
 {
     return scr_count;
