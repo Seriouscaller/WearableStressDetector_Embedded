@@ -1,7 +1,9 @@
 #include "adc.h"
 #include "bmi260.h"
 #include "board_config.h"
-#include "eda_processing.h"
+#include "eda_clean.h"
+#include "eda_filter.h"
+#include "eda_peaks.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
@@ -23,7 +25,7 @@
 
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
-#define WINDOW_STEP_SIZE_SEC 1
+#define WINDOW_STEP_SIZE_SEC 15
 #define MOVEMENT_THRESHOLD 8.0f
 #define MOTION_COOLDOWN_SAMPLES 300
 
@@ -68,6 +70,8 @@ void sensor_sampling_task(void *pvParameters)
     static uint32_t motion_cooldown_counter = 0;
 
     ppg_processing_init();
+    eda_filter_init();
+    eda_peaks_init(200.0f);
 
     while (1) {
         uint8_t samples_available = 0;
@@ -98,6 +102,8 @@ void sensor_sampling_task(void *pvParameters)
                             current_sample.ppg_filtered =
                                 ppg_filter_process(current_sample.ppg_raw) * (-1.0f);
                         }
+
+                        current_sample.gsr_scaled = ((float)current_sample.gsr / 4095.0f) * 3.3f;
 
                         current_sample.time_stamp = esp_timer_get_time();
                         bundle[samples_collected++] = current_sample;
@@ -406,6 +412,9 @@ void telemetry_task(void *pvParameters)
             printf(">Raw:%lu\n", sample.ppg_raw);
             printf(">Filt:%.2f\n", sample.ppg_filtered);
             printf(">Movement:%d\n", sample.has_movement_artifact);
+            printf(">GSR raw:%d\n", sample.gsr);
+            printf(">GSR scaled:%.3f\n", sample.gsr_scaled);
+            printf(">GSR clean:%.f\n", sample.gsr_clean);
         }
     }
 }

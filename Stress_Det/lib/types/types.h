@@ -30,6 +30,8 @@ typedef struct __attribute__((packed)) {
     uint32_t ppg_raw;   // 4B
     float ppg_filtered; // 4B
     uint16_t gsr;       // 2B
+    float gsr_scaled;
+    float gsr_clean;
     bmi_data_t bmi_data;
     bool has_movement_artifact;
 } raw_data_t;

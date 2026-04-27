@@ -3,6 +3,9 @@
 
 #include "signal_processing.h"
 #include "board_config.h"
+#include "eda_clean.h"
+#include "eda_filter.h"
+#include "eda_peaks.h"
 #include "esp_log.h"
 #include "float.h"
 #include "ppg_hrv.h"
@@ -82,6 +85,7 @@ static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t h
 static void calculate_rmssd(heart_beat_stats_t *data);
 static int64_t sum_invalid_data_us(raw_data_t history[], uint16_t window_size);
 static float calculate_clean_data_percentage(peak_data_t *peak_data);
+static float process_eda_signal(raw_data_t history[], uint16_t window_size);
 
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
@@ -100,7 +104,33 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     features.hr = heart_beat_data.avg_hr;
     features.hrv_rmssd = heart_beat_data.rmssd;
 
+    features.scr = process_eda_signal(history, window_size);
+    ESP_LOGI("SCR", "Count: %.f", features.scr);
     return features;
+}
+
+static float process_eda_signal(raw_data_t history[], uint16_t window_size)
+{
+    float scr_rate = 0.0f;
+    for (int i = 1; i < window_size; i++) {
+
+        // 2. Clean the signal (Butterworth)
+        history[i].gsr_clean = eda_clean_process(history[i].gsr_scaled);
+        // 3. Process components
+        eda_filter_process(history[i].gsr_clean);
+        float phasic = eda_get_phasic();
+
+        // 4. Detect peaks/SCR rate
+        eda_peaks_process(phasic);
+        scr_rate = eda_get_scr_rate();
+
+        if (i % 200 == 0) {
+            ESP_LOGI("eda_sig", "gsr_scaled: %.4f gsr_clean: %.4f scr_rate: %.4f phasic: %.4f",
+                     history[i].gsr_scaled, history[i].gsr_clean, scr_rate, phasic);
+        }
+    }
+
+    return eda_get_scr_rate();
 }
 
 static float calculate_clean_data_percentage(peak_data_t *peak_data)
@@ -168,7 +198,8 @@ static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uin
                     window_data.peaks_idx[window_data.peaks_count++] = current_peak;
 
                     // Exponential Moving Average (EMA).
-                    // 0.9 of old value + 0.1 of new value (current peak) moving towards the new peak value
+                    // 0.9 of old value + 0.1 of new value (current peak) moving towards the new peak
+                    // value
                     running_peak_avg =
                         (1.0f - PEAK_AVG_ALPHA) * running_peak_avg + PEAK_AVG_ALPHA * window_data.local_max;
 
