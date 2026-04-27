@@ -415,9 +415,10 @@ void telemetry_task(void *pvParameters)
             eda_peaks_process(phasic);
 
             float scr_rate = eda_get_scr_rate();
+            float sc_ph = eda_get_sc_ph();
 
             printf(">raw:%u\n", sample.gsr);
-            printf(">phasic: %.4f\n>SC_RR: %.4f\n", phasic, scr_rate);
+            printf(">phasic: %.4f\n>SC_RR: %.4f\n>SC_PH: %.4f\n", phasic, scr_rate, sc_ph);
             printf(">scale: %.3f\n>clean: %.3f\n>phasic: %.3f\n", gsr_scaled, clean, phasic);
         }
     }
