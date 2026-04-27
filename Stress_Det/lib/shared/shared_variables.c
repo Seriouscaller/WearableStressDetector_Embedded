@@ -11,6 +11,7 @@ TaskHandle_t xFeatureExtractionTaskHandle = NULL;
 
 // Data Collection
 raw_data_t raw_data = {0};
+bmi_data_t imu_data = {0};
 QueueHandle_t data_log_queue = NULL;
 QueueHandle_t telemetry_queue = NULL;
 RingbufHandle_t raw_data_ringbuf = NULL;
@@ -27,6 +28,7 @@ volatile uint8_t current_experiment_phase = 255;
 
 SemaphoreHandle_t experiment_phase_mutex = NULL;
 SemaphoreHandle_t ble_payload_mutex = NULL;
+SemaphoreHandle_t imu_data_mutex = NULL;
 
 // PPG/GSR Processing
 raw_data_t processing_buffer[WINDOW_SIZE]; // 30 seconds of data approx 12 KB in RAM

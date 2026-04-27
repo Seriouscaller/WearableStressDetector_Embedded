@@ -1,4 +1,5 @@
 #include "adc.h"
+#include "bmi260.h"
 #include "board_config.h"
 #include "data_subset.h"
 
@@ -17,6 +18,7 @@
 #include "shared_variables.h"
 #include "signal_processing.h"
 #include "storage.h"
+#include <math.h>
 #include <stdio.h>
 
 #include "eda_clean.h"
@@ -25,6 +27,7 @@
 
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
+#define WINDOW_STEP_SIZE_SEC 15
 
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len);
 static void collect_training_data(complete_log_t *log, uint16_t *buff_index);
@@ -48,6 +51,11 @@ extern SemaphoreHandle_t experiment_phase_mutex;
 extern volatile uint8_t current_experiment_phase;
 extern som_input_transfer_learning_t transfer_learning_buffer[];
 extern device_control_t device_config;
+extern i2c_master_dev_handle_t bmi_handle;
+extern i2c_master_dev_handle_t max_handle;
+extern spi_device_handle_t gsr_handle;
+extern bmi_data_t imu_data;
+extern SemaphoreHandle_t imu_data_mutex;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -116,9 +124,11 @@ void feature_extraction_task(void *pvParameters)
     }
     memset(history, 0, WINDOW_SIZE * sizeof(raw_data_t));
 
+    som_input_t features = {0};
+    uint8_t result = 255;
     while (1) {
         size_t item_size;
-        static uint16_t samples_in_window = 0;
+        static uint32_t seconds_of_samples_collected = 0;
 
         // Wait here until 1 bundle of samples (200 raw_data_t) has arrived
         raw_data_t *new_samples =
@@ -134,37 +144,15 @@ void feature_extraction_task(void *pvParameters)
             memcpy(&history[WINDOW_SIZE - SAMPLES_PER_SECOND], new_samples,
                    SAMPLES_PER_SECOND * sizeof(raw_data_t));
 
-            if (samples_in_window < WINDOW_SIZE) {
-                samples_in_window += SAMPLES_PER_SECOND;
+            // Extract features every 15 seconds
+            // Run inference every 15 seconds
+            seconds_of_samples_collected++;
+
+            if ((seconds_of_samples_collected % WINDOW_STEP_SIZE_SEC == 0)) {
+                features = calculate_features(history, WINDOW_SIZE);
+                // Inference using SOM model. Outputs class as single digit
+                result = classify_stress(&features);
             }
-
-            som_input_t features = calculate_features(history, WINDOW_SIZE);
-
-            eda_filter_init();
-
-            int initialized = 0;
-
-            /*for (int i = 0; i < 12000; i++) {
-                float gsr_scaled = (eda_sensor_data[i] / 4095.0f) * 3.3f;
-
-                if (!initialized) {
-                    eda_clean_init(gsr_scaled);
-                    initialized = 1;
-                }
-
-                float clean = eda_clean_process(gsr_scaled);
-                eda_filter_process(clean);
-
-                float phasic = eda_get_phasic();
-
-                // ESP_LOGI(TAG, "scale: %.3f clean: %.3f phasic: %.3f", gsr_scaled, clean, phasic);
-                // printf(">scale: %.3f\n>clean: %.3f\n>phasic: %.3f\n", gsr_scaled, clean, phasic);
-                printf(">eda raw: %.3f\n", eda_sensor_data[i]);
-            }*/
-
-            // Inference using SOM model. Outputs class as single digit
-            uint8_t result = classify_stress(&features);
-
             // 0 = Neutral
             // 1 = Stress
             // 2 = Rest
@@ -186,6 +174,25 @@ void feature_extraction_task(void *pvParameters)
         } else if (new_samples == NULL) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
+    }
+}
+
+void imu_sampling_task(void *pvParameters)
+{
+    bmi_data_t sample = {0};
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+
+        if (!device_config.enable_imu)
+            continue;
+
+        if (xSemaphoreTake(imu_data_mutex, pdMS_TO_TICKS(10)) != pdTRUE)
+            continue;
+
+        if (bmi260_read(bmi_handle, &sample) == ESP_OK) {
+            imu_data = sample;
+        }
+        xSemaphoreGive(imu_data_mutex);
     }
 }
 
@@ -372,6 +379,7 @@ static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_sa
 /*void telemetry_task(void *pvParameters)
 {
     raw_data_t sample;
+    const float GRAVITY_LSB = 2050.0f;
     while (1) {
         if (xQueueReceive(telemetry_queue, &sample, portMAX_DELAY)) {
             printf(">Raw:%lu\n", sample.ppg_raw);

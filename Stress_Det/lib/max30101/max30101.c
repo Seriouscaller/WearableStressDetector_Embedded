@@ -146,6 +146,7 @@ esp_err_t max30101_get_fifo_count(i2c_master_dev_handle_t dev_handle, uint8_t *c
 
     // 2. Read the Read Pointer (where our code last stopped reading)
     err = read_reg(dev_handle, MAX30101_REG_FIFO_RD_PTR, &read_ptr);
+
     if (err != ESP_OK)
         return err;
 

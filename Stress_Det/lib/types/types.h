@@ -9,12 +9,21 @@
 #define BLE_NUM_OF_SAMPLES_PER_PAYLOAD 24
 #define BLE_NUM_OF_BULK_PAYLOADS 8
 
+typedef struct {
+    int16_t acc_x; // 2B
+    int16_t acc_y; // 2B
+    int16_t acc_z; // 2B
+    int16_t gyr_x; // 2B
+    int16_t gyr_y; // 2B
+    int16_t gyr_z; // 2B
+} bmi_data_t;      // Tot: 12B
+
 typedef struct __attribute__((packed)) {
     int64_t time_stamp; // 8B
     uint32_t ppg_raw;   // 4B
     float ppg_filtered; // 4B
     uint16_t gsr;       // 2B
-} raw_data_t;           // Tot: 20B
+} raw_data_t;           // Tot: 18B
 
 typedef struct __attribute__((packed)) {
     float hr;        // 4B
@@ -60,16 +69,8 @@ typedef struct __attribute__((packed)) {
 } ble_payload_final_t;                         // Total: 450 bytes
 
 typedef struct {
-    int16_t acc_x; // 2B
-    int16_t acc_y; // 2B
-    int16_t acc_z; // 2B
-    int16_t gyr_x; // 2B
-    int16_t gyr_y; // 2B
-    int16_t gyr_z; // 2B
-} bmi_data_t;      // Tot: 12B
-
-typedef struct {
     i2c_master_dev_handle_t *max_handle;
+    i2c_master_dev_handle_t *bmi_handle;
     spi_device_handle_t *gsr_handle;
 } sensor_handles_t;
 

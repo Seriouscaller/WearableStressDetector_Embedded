@@ -29,7 +29,15 @@ extern QueueHandle_t telemetry_queue;
 extern RingbufHandle_t raw_data_ringbuf;
 extern SemaphoreHandle_t ble_payload_mutex;
 extern SemaphoreHandle_t experiment_phase_mutex;
+extern SemaphoreHandle_t imu_data_mutex;
 extern device_control_t device_config;
+
+i2c_master_bus_handle_t bus_handle = NULL;
+i2c_master_dev_handle_t max_handle = NULL;
+i2c_master_dev_handle_t bmi_handle = NULL;
+i2c_master_dev_handle_t tmp_handle = NULL;
+spi_device_handle_t gsr_handle = NULL;
+sensor_handles_t sensor_handles = {NULL};
 
 void app_main(void)
 {
@@ -48,6 +56,12 @@ void app_main(void)
         return;
     }
 
+    imu_data_mutex = xSemaphoreCreateMutex();
+    if (imu_data_mutex == NULL) {
+        ESP_LOGE(TAG, "bmi_data_mutex, failed to create Mutex!");
+        return;
+    }
+
     data_log_queue = xQueueCreate(5, sizeof(complete_log_t *));
     if (data_log_queue == NULL) {
         ESP_LOGE(TAG, "data_log_queue, failed to create Queue!");
@@ -61,25 +75,24 @@ void app_main(void)
     }
 
     // Initialize I2C-bus & SPI-bus
-    i2c_master_bus_handle_t bus_handle;
-    if (device_config.enable_ppg)
+    if (device_config.enable_ppg || device_config.enable_imu)
         ESP_ERROR_CHECK(init_i2c(&bus_handle));
     if (device_config.enable_gsr)
         ESP_ERROR_CHECK(init_spi());
 
-    static i2c_master_dev_handle_t tmp_handle, max_handle, bmi_handle;
-    static spi_device_handle_t gsr_handle;
-    static sensor_handles_t sensor_handles;
     sensor_handles.gsr_handle = &gsr_handle;
     sensor_handles.max_handle = &max_handle;
+    sensor_handles.bmi_handle = &bmi_handle;
+    if (device_config.enable_imu)
+        ESP_ERROR_CHECK(bmi260_init(bus_handle, &bmi_handle));
+
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     // Initialize I2C-sensors
     if (device_config.enable_temp)
         ESP_ERROR_CHECK(tmp117_init(bus_handle, &tmp_handle));
     if (device_config.enable_ppg)
         ESP_ERROR_CHECK(max30101_init(bus_handle, &max_handle));
-    if (device_config.enable_imu)
-        ESP_ERROR_CHECK(bmi260_init(bus_handle, &bmi_handle));
 
     // Initialize SPI-sensor
     if (device_config.enable_gsr)
@@ -89,15 +102,16 @@ void app_main(void)
 
     // BLE
     init_ble_server();
-    xTaskCreatePinnedToCore(ble_update_task, "ble_upd", 4 * 1024, NULL, 5, NULL, 0);
+    xTaskCreatePinnedToCore(ble_update_task, "ble_upd", 4 * 1024, NULL, 6, NULL, 0);
 
     // Pipeline Tasks
     xTaskCreatePinnedToCore(sensor_sampling_task, "sampl", 8 * 1024, &sensor_handles, 10, NULL, 1);
-    xTaskCreatePinnedToCore(feature_extraction_task, "feats", 4 * 1024, NULL, 9, NULL, 1);
+    xTaskCreatePinnedToCore(feature_extraction_task, "feats", 8 * 1024, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(logging_task, "log", 8 * 1024, NULL, 6, NULL, 1);
 
     xTaskCreatePinnedToCore(telemetry_task, "telem", 4 * 1024, NULL, 2, NULL, 1);
-    xTaskCreatePinnedToCore(battery_task, "battery", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(battery_task, "battery", 4 * 1024, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(imu_sampling_task, "imu_smpl", 4 * 1024, NULL, 3, NULL, 0);
 
     return;
 }
