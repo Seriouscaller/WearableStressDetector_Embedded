@@ -12,6 +12,11 @@ static float next = 0.0f;
 
 static int initialized = 0;
 
+// SC_PH
+static float phasic_power_sum = 0.0f;
+static int power_samples = 0;
+static float sc_ph = 0.0f;
+
 // Threshold (can tune later)
 static float threshold = 0.003f;
 
@@ -38,6 +43,10 @@ void eda_peaks_init(float sampling_rate)
     refractory_samples = refractory_limit;
     scr_count = 0;
     window_samples = 0;
+
+    phasic_power_sum = 0.0f;
+    power_samples = 0;
+    sc_ph = 0.0f;
 }
 
 // Process one sample
@@ -53,6 +62,16 @@ void eda_peaks_process(float phasic)
         return;
     }
 
+    float p = phasic;
+
+    // Clipping
+    float cap = 0.05f;
+    if (p > cap)
+        p = cap;
+
+    phasic_power_sum += p * p;
+    power_samples++;
+
     // refractory countdown
     if (refractory_samples < refractory_limit)
         refractory_samples++;
@@ -66,8 +85,13 @@ void eda_peaks_process(float phasic)
     // window tracking
     window_samples++;
     if (window_samples >= window_size) {
+        if (power_samples > 0)
+            sc_ph = phasic_power_sum / power_samples;
+
         window_samples = 0;
         scr_count = 0;
+        phasic_power_sum = 0.0f;
+        power_samples = 0;
     }
 }
 
@@ -80,4 +104,10 @@ float eda_get_scr_rate(void)
 int eda_get_scr_count(void)
 {
     return scr_count;
+}
+
+// SC_PH (phasically filtered power) same feature as SOM model uses for classification
+float eda_get_sc_ph(void)
+{
+    return sc_ph;
 }

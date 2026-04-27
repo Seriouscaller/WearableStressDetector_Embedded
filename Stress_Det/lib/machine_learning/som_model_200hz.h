@@ -1,7 +1,7 @@
 #pragma once
 #include <stdio.h>
 
-// HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
+// HR, HRV_RMSSD, SC_PH, SC_RR
 // RMSSD - Visar IBI varierar på kort sikt.
 // SDNN - Hur IBI har förändrats över längre tid.
 // HRV är skapad genom kombination av dessa två

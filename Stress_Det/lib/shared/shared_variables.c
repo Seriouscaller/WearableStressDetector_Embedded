@@ -32,7 +32,7 @@ SemaphoreHandle_t experiment_phase_mutex = NULL;
 SemaphoreHandle_t ble_payload_mutex = NULL;
 
 // PPG/GSR Processing
-raw_data_t processing_buffer[WINDOW_SIZE]; // 30 seconds of data approx 12 KB in RAM
+raw_data_t processing_buffer[WINDOW_SIZE];
 
 // Data collection on-device
 som_input_transfer_learning_t transfer_learning_buffer[15] = {0};

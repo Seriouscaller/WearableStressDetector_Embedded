@@ -5,3 +5,4 @@ void eda_peaks_process(float phasic);
 
 float eda_get_scr_rate(void); // SC_RR (peaks per second)
 int eda_get_scr_count(void);
+float eda_get_sc_ph(void);

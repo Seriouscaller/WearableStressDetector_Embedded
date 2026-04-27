@@ -6,10 +6,10 @@
 #include <stdio.h>
 
 // Feature order in struct som_input_t and trained ML model:
-// HR, HRV_RMSSD, HRV_SDNN, SCR_COUNT, EDA_TONIC, EDA_PHASIC
+// HR, HRV_RMSSD, SC_PH, SC_RR
 
 #define SOM_NEURONS 900
-#define SOM_INPUT_LEN 5
+#define SOM_INPUT_LEN 4
 bool debug_som = true;
 
 static void normalize(float *input, float *scaled_output);
@@ -18,19 +18,12 @@ static uint16_t get_winning_neuron(float *scaled_input);
 
 int classify_stress(som_input_t *features)
 {
-    /* Real data
-    float input[SOM_INPUT_LEN] = {features->hr,  features->hrv_rmssd, features->hrv_sdnn,
-                        (          features->scr, features->tonic,     features->phasic};*/
-
-    /* Test data */
-    // float input[SOM_INPUT_LEN] = {-11.11f, 11.11f, -11.11f, 11.11f, 11.11f, 11.11f};
 
     if ((features->hr == 0) || features->hrv_rmssd == 0) {
         return -1;
     }
 
-    float input[SOM_INPUT_LEN] = {features->hr, features->hrv_rmssd, features->scr, features->tonic,
-                                  features->phasic};
+    float input[SOM_INPUT_LEN] = {features->hr, features->hrv_rmssd, features->sc_ph, features->sc_rr};
 
     // Normalization
     float scaled_output[SOM_INPUT_LEN] = {0};

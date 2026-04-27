@@ -26,6 +26,7 @@
 #define STORAGE_BUFFER_SIZE 10
 #define PRINT_EVERY_N_SAMPLE 10
 #define WINDOW_STEP_SIZE_SEC 15
+#define FEATURE_EXTRATION_INTERVAL 2
 #define MOVEMENT_THRESHOLD 8.0f
 #define MOTION_COOLDOWN_SAMPLES 300
 
@@ -173,9 +174,11 @@ void feature_extraction_task(void *pvParameters)
             // Run inference every 15 seconds
             seconds_of_samples_collected++;
 
-            if ((seconds_of_samples_collected % WINDOW_STEP_SIZE_SEC == 0)) {
+            if ((seconds_of_samples_collected % FEATURE_EXTRATION_INTERVAL == 0)) {
                 features = calculate_features(history, WINDOW_SIZE);
-                // Inference using SOM model. Outputs class as single digit
+            }
+
+            if ((seconds_of_samples_collected % WINDOW_STEP_SIZE_SEC == 0)) {
                 result = classify_stress(&features);
             }
             // 0 = Neutral
@@ -211,13 +214,12 @@ void logging_task(void *pvParameters)
         if (xQueueReceive(data_log_queue, &received_log, portMAX_DELAY) == pdTRUE) {
             if (device_config.show_logged_values) {
                 ESP_LOGI(TAG,
-                         "t:%8lu ppg:%8lu ppgf:%3.1f gsr:%8u hr: %3.1f rmssd:%3.2f ton:%3.2f "
-                         "phas: %3.2f "
-                         "Str.cl:%3u Ex.ph:%3u",
+                         "t:%8lu ppg:%8lu ppgf:%3.1f gsr:%8u hr: %3.1f rmssd:%3.2f sc_ph:%5.4f "
+                         "sc_rr: %5.4f Str.cl:%3u Ex.ph:%3u",
                          received_log->timestamp, received_log->raw_samples[0].ppg_raw,
                          received_log->raw_samples[0].ppg_filtered, received_log->raw_samples[0].gsr,
                          received_log->features.hr, received_log->features.hrv_rmssd,
-                         received_log->features.tonic, received_log->features.phasic,
+                         received_log->features.sc_ph, received_log->features.sc_rr,
                          received_log->stress_class, received_log->experiment_phase);
             }
 
@@ -309,9 +311,8 @@ static void fragment_ble_payloads(complete_log_t *log)
 
     ble_payload_final.hr = log->features.hr;
     ble_payload_final.rmssd = log->features.hrv_rmssd;
-    ble_payload_final.scr = log->features.scr;
-    ble_payload_final.tonic = log->features.tonic;
-    ble_payload_final.phasic = log->features.phasic;
+    ble_payload_final.sc_ph = log->features.sc_ph;
+    ble_payload_final.sc_rr = log->features.sc_rr;
     ble_payload_final.stress_class = log->stress_class;
     ble_payload_final.experiment_phase = log->experiment_phase;
 }
