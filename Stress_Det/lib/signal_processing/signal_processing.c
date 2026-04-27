@@ -96,9 +96,6 @@ som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
     if (debug_show_heartbeat_stats)
         printf(">Peaks:%u\n>HR:%.0f\n>SDNN:%.0f\n>RMSSD:%.0f\n", peak_data.peaks_count,
                heart_beat_data.avg_hr, heart_beat_data.sdnn, heart_beat_data.rmssd);
-    for (int i = 0; i < window_size; i++) {
-        printf("PPG=%.2f\n", history[i].ppg_filtered);
-    }
 
     features.hr = heart_beat_data.avg_hr;
     features.hrv_sdnn = heart_beat_data.sdnn;
