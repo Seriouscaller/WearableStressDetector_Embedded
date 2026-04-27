@@ -16,6 +16,7 @@
 const static char *TAG = "ADC";
 extern bool show_battery_log;
 extern device_control_t device_config;
+extern float battery_percentage;
 
 static esp_err_t adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten,
                                       adc_cali_handle_t *adc_cali_handle);
@@ -97,7 +98,7 @@ void log_battery_voltage(int *adc_raw, int *voltage_mV)
     float pin_v = *voltage_mV / 1000.0f;
     float battery_v = pin_v * V_DIVIDER_RATIO;
 
-    float battery_percentage =
+    battery_percentage =
         ((battery_v - MCU_MINIMUM_OP_VOLTAGE) / (BATTERY_MAX_VOLTAGE - MCU_MINIMUM_OP_VOLTAGE) * 100);
 
     if (battery_percentage < 0)
