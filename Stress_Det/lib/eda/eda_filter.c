@@ -38,27 +38,24 @@ void eda_filter_process(float x)
         tonic_initialized = 1;
     }
     // Update tonic with a slow moving average
-    tonic += 0.00005f * (x - tonic);
+    tonic += 0.0002f * (x - tonic);
 
     // Center the signal by removing the tonic component
     // find variation around the tonic level, which is the phasic component
-    float centered = x - tonic;
+    // float centered = x;
 
     // high-pass filter to extract phasic component
-    float y = b0 * centered + z1;
+    /*float y = b0 * centered + z1;
     z1 = b1 * centered - a1 * y + z2;
-    z2 = b2 * centered - a2 * y;
+    z2 = b2 * centered - a2 * y; */
 
-    phasic = y;
+    phasic = x - tonic;
 
-    // simple low-pass to smooth the phasic component.
+    if (phasic < 0) {
+        phasic = 0; // Only consider positive variations as phasic responses
+    }
 
-    phasic_smooth += 0.1f * (phasic - phasic_smooth);
-    phasic = phasic_smooth;
-
-    // take absolute value, positive deflection in GSR is what matters.
-    if (phasic < 0.0f)
-        phasic = 0.0f;
+    phasic *= 0.5f; // Scale down the phasic component for better visualization
 }
 
 // Getter

@@ -113,16 +113,17 @@ static void process_eda_signal(raw_data_t history[], uint16_t window_size, som_i
 {
     float scr_rate = 0.0f;
     float sc_ph = 0.0f;
+
     for (int i = 1; i < window_size; i++) {
 
         history[i].gsr_clean = eda_clean_process(history[i].gsr_scaled);
         eda_filter_process(history[i].gsr_clean);
         float phasic = eda_get_phasic();
-
         eda_peaks_process(phasic);
         scr_rate = eda_get_scr_rate();
         sc_ph = eda_get_sc_ph();
     }
+
     // ESP_LOGI("eda_sig", "SC_PH: %.4f SC_RR: %.4f ", sc_ph, scr_rate);
     features->sc_ph = sc_ph;
     features->sc_rr = eda_get_scr_rate();

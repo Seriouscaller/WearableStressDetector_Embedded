@@ -85,9 +85,9 @@ void sensor_sampling_task(void *pvParameters)
                     bool ppg_ok =
                         (max30101_read_fifo(*sensors->max_handle, &current_sample.ppg_raw) == ESP_OK);
                     bool gsr_ok = (gsr_sensor_read_raw(*sensors->gsr_handle, &current_sample.gsr) == ESP_OK);
-                    bool imu_ok = (bmi260_read(bmi_handle, &current_sample.bmi_data) == ESP_OK);
+                    // bool imu_ok = (bmi260_read(bmi_handle, &current_sample.bmi_data) == ESP_OK);
 
-                    if (ppg_ok && gsr_ok && imu_ok) {
+                    if (ppg_ok && gsr_ok) {
                         bool motion_now = detect_motion(&current_sample.bmi_data);
 
                         if (motion_now) {
