@@ -1,6 +1,6 @@
 #include "inference.h"
 #include "esp_log.h"
-#include "som_model_200hz_ver9_ppg_center.h"
+#include "som_model_4_features.h"
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
@@ -8,7 +8,7 @@
 // Feature order in struct som_input_t and trained ML model:
 // HR, HRV_RMSSD, SC_PH, SC_RR
 
-#define SOM_NEURONS 900
+#define SOM_NEURONS 484
 #define SOM_INPUT_LEN 4
 bool debug_som = true;
 
@@ -46,13 +46,13 @@ int classify_stress(som_input_t *features)
         const char *cluster_name;
         switch (som_clusters[bmu_index]) {
         case 0:
-            cluster_name = "NEUTRAL";
+            cluster_name = "REST";
             break;
         case 1:
-            cluster_name = "STRESS";
+            cluster_name = "NEUTRAL";
             break;
         case 2:
-            cluster_name = "REST";
+            cluster_name = "STRESS";
             break;
         default:
             cluster_name = "UNKNOWN";

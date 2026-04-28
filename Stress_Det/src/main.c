@@ -103,6 +103,6 @@ void app_main(void)
 
     xTaskCreatePinnedToCore(telemetry_task, "telem", 4 * 1024, NULL, 2, NULL, 1);
     xTaskCreatePinnedToCore(battery_task, "battery", 4 * 1024, NULL, 1, NULL, 1);
-    // xTaskCreatePinnedToCore(temperature_task, "temp_task", 4 * 1024, NULL, 3, NULL, 1);
+    xTaskCreatePinnedToCore(temperature_task, "temp_task", 4 * 1024, NULL, 3, NULL, 1);
     return;
 }
