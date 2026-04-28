@@ -23,7 +23,7 @@ typedef struct __attribute__((packed)) {
     uint32_t ppg_raw;   // 4B
     float ppg_filtered; // 4B
     uint16_t gsr;       // 2B
-} raw_log_data_t;       // Tot: 18B
+} raw_log_data_t;       // Tot: 16B
 
 typedef struct __attribute__((packed)) {
     int64_t time_stamp; // 8B
@@ -41,7 +41,7 @@ typedef struct __attribute__((packed)) {
     float hrv_rmssd; // 4B
     float sc_ph;     // 4B
     float sc_rr;     // 4B
-} som_input_t;       // Tot: 20B
+} som_input_t;       // Tot: 16B
 
 typedef struct __attribute__((packed)) {
     som_input_t features;        // 20B
@@ -54,6 +54,7 @@ typedef struct __attribute__((packed)) {
     raw_log_data_t raw_samples[200]; // 2800B
     som_input_t features;            // 24B
     uint8_t stress_class;            // 1B
+    uint16_t num_of_classifications; // 2B
     uint8_t experiment_phase;        // 1B
 } complete_log_t;                    // Tot: 2830B
 
@@ -63,12 +64,13 @@ typedef struct __attribute__((packed)) {
 } ble_payload_bulk_t;                                           // Total: 424B
 
 typedef struct __attribute__((packed)) {
-    uint32_t timestamp;            // 4 Bytes
-    raw_log_data_t raw_samples[8]; // Last 8 samples (420 bytes)
-    float hr, rmssd, sc_ph, sc_rr; // 4 * 4 = 16 Bytes
-    uint8_t stress_class;          // (1 byte)
-    uint8_t experiment_phase;      // (1 byte)
-} ble_payload_final_t;             // Total: 450 bytes
+    uint32_t timestamp;              // 4 Bytes
+    raw_log_data_t raw_samples[8];   // Last 8 samples
+    float hr, rmssd, sc_ph, sc_rr;   // 4 * 4 = 16 Bytes
+    uint8_t stress_class;            // (1 byte)
+    uint16_t num_of_classifications; // 2B
+    uint8_t experiment_phase;        // (1 byte)
+} ble_payload_final_t;               // Total: 450 bytes
 
 typedef struct {
     i2c_master_dev_handle_t *max_handle;

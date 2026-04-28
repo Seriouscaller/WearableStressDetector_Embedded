@@ -60,6 +60,7 @@ extern spi_device_handle_t gsr_handle;
 extern bmi_data_t imu_data;
 extern float battery_percentage;
 extern float temperature;
+extern uint16_t num_of_classifications;
 
 void sensor_sampling_task(void *pvParameters)
 {
@@ -180,6 +181,7 @@ void feature_extraction_task(void *pvParameters)
 
             if ((seconds_of_samples_collected % WINDOW_STEP_SIZE_SEC == 0)) {
                 result = classify_stress(&features);
+                num_of_classifications++;
             }
             // 0 = Neutral
             // 1 = Stress
@@ -314,6 +316,7 @@ static void fragment_ble_payloads(complete_log_t *log)
     ble_payload_final.sc_ph = log->features.sc_ph;
     ble_payload_final.sc_rr = log->features.sc_rr;
     ble_payload_final.stress_class = log->stress_class;
+    ble_payload_final.num_of_classifications = log->num_of_classifications;
     ble_payload_final.experiment_phase = log->experiment_phase;
 }
 
@@ -371,6 +374,7 @@ static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_sa
     }
     final_log->features = *features;
     final_log->stress_class = result;
+    final_log->num_of_classifications = num_of_classifications;
     final_log->timestamp = xTaskGetTickCount();
 
     if (xSemaphoreTake(experiment_phase_mutex, pdMS_TO_TICKS(10))) {
