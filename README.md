@@ -1,7 +1,6 @@
-# ESP32 Stress-Monitoring Wearable - Team Handover Guide
+# ESP32 Stress-Monitoring Wearable
 
 **Last Updated:** May 4, 2026  
-**Status:** Production-Ready  
 **Primary Hardware:** Seeed XIAO ESP32S3
 
 ---
