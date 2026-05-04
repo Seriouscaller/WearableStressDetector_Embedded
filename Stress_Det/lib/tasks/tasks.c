@@ -587,6 +587,14 @@ void telemetry_task(void *pvParameters)
             printf(">Movement:%d\n", sample.has_movement_artifact);
             printf(">GSR raw:%d\n", sample.gsr);
             printf(">GSR scaled:%.3f\n", sample.gsr_scaled);
+            /*
+            printf(">ax:%d\n", sample.bmi_data.acc_x);
+            printf(">ay:%d\n", sample.bmi_data.acc_y);
+            printf(">az:%d\n", sample.bmi_data.acc_z);
+
+            printf(">gx:%d\n", sample.bmi_data.gyr_x);
+            printf(">gy:%d\n", sample.bmi_data.gyr_y);
+            printf(">gz:%d\n", sample.bmi_data.gyr_z);*/
         }
     }
 }
