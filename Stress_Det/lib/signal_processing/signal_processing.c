@@ -35,9 +35,11 @@ static const char *TAG = "S_PR";
 #define MIN_PEAK_FOR_HEARTRATE 5
 #define MAX_PEAK_FOR_HEARTRATE 600
 #define MIN_PEAKS_FOR_SDNN 25
-#define MIN_VALID_RR_MS 600
-#define MAX_VALID_RR_MS 1300
-#define BASELINE_RR_MS 800
+
+#define MIN_VALID_RR_MS 450  // Upper limit 133.3 BPM
+#define MAX_VALID_RR_MS 1300 // Lower limit 46.1 BPM
+
+#define BASELINE_RR_MS 800 // Baseline 75 BPM
 #define MAX_DIFF_MS_HEARTBEATS 200
 
 #define TWO_HUNDRED_FIFTY_MS_IN_SMPLS 50
