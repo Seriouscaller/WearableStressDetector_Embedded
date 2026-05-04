@@ -63,7 +63,18 @@ const ble_uuid128_t ble_sensor_chr_i_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0
 const ble_uuid128_t ble_command_chr_uuid = BLE_UUID128_INIT(0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0xcd, 0xab,
                                                             0x34, 0x12, 0xcd, 0xab, 0x06, 0xff, 0x00, 0x00);
 
-/* Characteristics Table */
+/**
+ * @brief  GATT Characteristic Definition Table.
+ *
+ * This table maps UUIDs to their respective access callbacks and flags.
+ * - Characteristics A-H: Used for sharded bulk sensor data (Notifications/Reads).
+ * - Characteristic I: Used for the final data packet or summary.
+ * - Command Characteristic: Used for incoming control instructions (Write).
+ *
+ * Each sensor characteristic includes a User Description Descriptor (0x2901)
+ * to provide a human-readable label for the data part, handled by
+ * 'gatt_svr_dsc_access'.
+ */
 const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
     {.uuid = &ble_sensor_chr_a_uuid.u, // UUID ...03ff...   Part A
      .access_cb = sensor_read_cb,
@@ -152,16 +163,15 @@ const struct ble_gatt_chr_def ble_gatt_chr_def_a[] = {
      .val_handle = &ble_val_handles.ble_command_chr_val_handle},
     {0}};
 
-// GATT Table Definition
-// Creates a custom service ("folders"), with a custom sensor-
-// characteristic ("files"). Assigns which callback-function to run
-// when phone tries to read value (gets latest data).
-// Assigns permission for phone to READ values from char, and the S3
-// to push/notify when new data is available.
-// Data pushed over BLE consist of complete_data_t which is split
-// into 5 parts to fit into Max Transmissible Unit. Each part
-// becomes a separate characteristic. The five parts are
-// reassembled on the receiving side (python script).
+/**
+ * @brief  Main GATT Service Definition Table.
+ *
+ * This table acts as the entry point for the GATT server configuration. It defines
+ * a Primary Service using a custom 128-bit UUID and associates it with the
+ * characteristic array (ble_gatt_chr_def_a).
+ *
+ * @see ble_gatt_chr_def_a
+ */
 const struct ble_gatt_svc_def gatt_svcs[] = {{
                                                  .type = BLE_GATT_SVC_TYPE_PRIMARY,
                                                  .uuid = &ble_sensor_svc_uuid.u,

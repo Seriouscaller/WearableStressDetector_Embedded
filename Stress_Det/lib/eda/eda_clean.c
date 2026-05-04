@@ -14,7 +14,23 @@ typedef struct {
 // Two cascaded biquads = 4th order Butterworth
 static biquad_t s1, s2;
 
-// Process one biquad
+/**
+ * @brief Processes a single input sample through a Biquad filter stage.
+ *
+ * This function applies a Second-Order Section (SOS) filter to the input 'x'
+ * using the Direct Form II Transposed structure. This structure is particularly
+ * effective for real-time sensor filtering on the ESP32-S3 as it balances
+ * computational speed with low quantization noise.
+ *
+ * @param[in,out] s Pointer to the biquad_t structure containing coefficients
+ *                  (b0, b1, b2, a1, a2) and state variables (z1, z2).
+ * @param[in]     x The raw input sample (e.g., raw GSR voltage or PPG intensity).
+ *
+ * @return float The filtered output sample 'y'.
+ *
+ * @note To implement higher-order filters (e.g., 4th order Butterworth),
+ *       cascade multiple calls to this function with different biquad_t stages.
+ */
 static float biquad_process(biquad_t *s, float x)
 {
     float y = s->b0 * x + s->z1;
@@ -23,6 +39,23 @@ static float biquad_process(biquad_t *s, float x)
     return y;
 }
 
+/**
+ * @brief Initializes a 4th-order Butterworth low-pass filter for EDA signals.
+ *
+ * Configures two cascaded biquad stages to achieve a 3Hz cutoff frequency at
+ * a 200Hz sampling rate. This filter is used to clean raw GSR data from the
+ * CJMCU 6701, removing high-frequency noise while preserving skin conductance
+ * responses.
+ *
+ * @param[in] first_sample The initial sensor reading. Used to prime the delay
+ *                         lines to prevent startup transients.
+ *
+ * @note Coefficients are calculated for:
+ *       - Type: Butterworth Low-Pass
+ *       - Sample Rate: 200 Hz
+ *       - Cutoff: 3 Hz
+ *       - Structure: Cascaded Second-Order Sections (SOS)
+ */
 void eda_clean_init(float first_sample)
 {
     // Butterworth Low-pass

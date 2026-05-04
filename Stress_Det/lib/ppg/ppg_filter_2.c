@@ -10,6 +10,19 @@ typedef struct {
 
 static ppg_state_t ppg_state = {0.0f, 0.0f, false};
 
+/**
+ * @brief  Processes a raw PPG sample to isolate the pulsatile (AC) component.
+ *
+ * This pipeline performs three critical transformations:
+ * 1. **DC Tracking**: Uses a slow EMA to estimate the static tissue reflection.
+ * 2. **Jitter Filtering**: A 0.30 alpha EMA removes high-frequency I2C/optical noise.
+ * 3. **Inversion**: Since blood volume increases (absorbing more light) during
+ *    systole, the raw signal dips. We invert this so peaks represent heart beats.
+ *
+ * @param[in] raw_in The 18-bit raw intensity from the MAX30101 FIFO.
+ *
+ * @return float The cleaned, centered, and inverted AC signal for peak detection.
+ */
 float ppg_process_sample(uint32_t raw_in)
 {
     // 1. Convert to float immediately [cite: 637]
@@ -36,6 +49,14 @@ float ppg_process_sample(uint32_t raw_in)
     return (ppg_state.lpf_out * -1.0f) + 500.0f;
 }
 
+/**
+ * @brief  Resets the initialization flag of the PPG signal processor.
+ *
+ * Calling this function forces the next sample passed to 'ppg_process_sample'
+ * to be treated as a new baseline. This is critical for clearing out 'stale'
+ * DC estimates after the sensor has been moved or the 5V boost pump has
+ * been power-cycled.
+ */
 void ppg_filter_reset()
 {
     ppg_state.is_initialized = false;

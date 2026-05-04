@@ -17,7 +17,18 @@ static float tonic = 0.0f;
 static float phasic_smooth = 0.0f;
 static int tonic_initialized = 0;
 
-// Init
+/**
+ * @brief  Initializes the state variables for EDA signal decomposition.
+ *
+ * This function resets the filters and accumulators used to separate the raw
+ * Skin Conductance (SC) into Tonic (Level) and Phasic (Response) components.
+ * It must be called before the main sensor sampling loop begins to ensure
+ * the baseline estimation (Tonic) starts from a neutral state.
+ *
+ * @note The variables initialized here (z1, z2, mean, etc.) are typically
+ *       global or static variables used within the 'biquad_process' or
+ *       custom EDA decomposition algorithms.
+ */
 void eda_filter_init(void)
 {
     z1 = 0;
@@ -29,7 +40,23 @@ void eda_filter_init(void)
     tonic_initialized = 0;
 }
 
-// Process
+/**
+ * @brief  Decomposes the raw EDA signal into Tonic and Phasic components.
+ *
+ * This function implements a baseline-tracking algorithm. It uses a very slow
+ * Exponential Moving Average (EMA) to identify the Tonic Skin Conductance
+ * Level (SCL). The Phasic component is then derived by subtracting the Tonic
+ * from the input 'x', isolating the Skin Conductance Responses (SCR).
+ *
+ * @param[in] x  The raw (or pre-filtered) skin conductance sample in microsiemens (µS).
+ *
+ * @note The smoothing coefficient 0.0002f at 200Hz provides a time constant
+ *       of approximately 25 seconds, ensuring the Tonic level ignores
+ *       rapid physiological spikes.
+ *
+ * @see tonic
+ * @see phasic
+ */
 void eda_filter_process(float x)
 {
     // Initialize tonic with the first sample
@@ -58,12 +85,30 @@ void eda_filter_process(float x)
     phasic *= 0.5f; // Scale down the phasic component for better visualization
 }
 
-// Getter
+/**
+ * @brief  Retrieves the current Phasic component of the EDA signal.
+ *
+ * This getter function provides access to the processed Phasic value calculated
+ * in the 'eda_filter_process' routine. In a typical wearable workflow, this
+ * value is polled by the BLE task to be sent as a notification to the central
+ * device for real-time visualization.
+ *
+ * @return float The current phasic skin conductance response in scaled units.
+ */
 float eda_get_phasic(void)
 {
     return phasic;
 }
 
+/**
+ * @brief  Retrieves the current Tonic component (SCL) of the EDA signal.
+ *
+ * Returns the baseline skin conductance level calculated in 'eda_filter_process'.
+ * The Tonic component is used in longitudinal studies to track shifts in
+ * autonomic nervous system activity over minutes or hours.
+ *
+ * @return float The current tonic skin conductance level in microsiemens (µS).
+ */
 float eda_get_tonic(void)
 {
     return tonic;

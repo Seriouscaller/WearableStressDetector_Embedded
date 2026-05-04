@@ -8,8 +8,6 @@
 #include "eda_peaks.h"
 #include "esp_log.h"
 #include "float.h"
-#include "ppg_hrv.h"
-#include "ppg_peaks.h"
 #include "types.h"
 #include <math.h>
 #include <stdio.h>
@@ -87,6 +85,25 @@ static int64_t sum_invalid_data_us(raw_data_t history[], uint16_t window_size);
 static float calculate_clean_data_percentage(peak_data_t *peak_data);
 static void process_eda_signal(raw_data_t history[], uint16_t window_size, som_input_t *features);
 
+/**
+ * @brief Performs high-level feature extraction from physiological time-series data.
+ *
+ * This function orchestrates the multi-modal signal processing chain. It extracts
+ * cardiovascular features (HR, HRV) from the MAX30101 PPG signal and electrodermal
+ * features (Phasic Power, Response Rate) from the CJMCU 6701 GSR signal.
+ *
+ * The extracted features are packaged into a `som_input_t` structure, serving as the
+ * input vector for the Self-Organizing Map (SOM) stress classifier.
+ *
+ * @param[in] history     Array of raw/filtered samples (PPG, GSR, IMU) for the current window.
+ * @param[in] window_size The number of samples to process (e.g., 6000 for 30s at 200Hz).
+ *
+ * @return som_input_t    The populated feature vector containing:
+ *                        - hr:        Average Heart Rate (BPM)
+ *                        - hrv_rmssd: Heart Rate Variability (ms)
+ *                        - sc_ph:     Skin Conductance Phasic Power
+ *                        - sc_rr:     Skin Conductance Response Rate
+ */
 som_input_t calculate_features(raw_data_t history[], uint16_t window_size)
 {
     som_input_t features = {0};
@@ -129,6 +146,21 @@ static void process_eda_signal(raw_data_t history[], uint16_t window_size, som_i
     features->sc_rr = eda_get_scr_rate();
 }
 
+/**
+ * @brief Processes the Electrodermal Activity (EDA) signal to extract Phasic features.
+ *
+ * This function iterates through a window of GSR samples to perform signal cleaning,
+ * baseline removal (Tonic-Phasic decomposition), and peak detection. It extracts
+ * the Phasic Power (sc_ph) and the Skin Conductance Response Rate (sc_rr), which
+ * are primary indicators of sympathetic nervous system arousal.
+ *
+ * @param[in,out] history     Array containing raw GSR data and placeholders for clean data.
+ * @param[in]     window_size The number of samples in the current analysis window.
+ * @param[out]    features    Pointer to the SOM input struct where results are stored.
+ *
+ * @note This implementation assumes the EDA filter state is maintained internally
+ *       between calls. It relies on the SPI-acquired data from the CJMCU 6701.
+ */
 static float calculate_clean_data_percentage(peak_data_t *peak_data)
 {
     float valid_time_ms = (float)peak_data->valid_data_us / 1000.0f;
@@ -142,6 +174,22 @@ static float calculate_clean_data_percentage(peak_data_t *peak_data)
     }
 };
 
+/**
+ * @brief Detects heart rate peaks in a filtered PPG signal with motion rejection.
+ *
+ * Implements a robust peak-finding algorithm using:
+ * 1. **Zero-Crossing State Machine**: Tracks transitions between ABOVE and BELOW baseline.
+ * 2. **Dynamic Thresholding**: An EMA-based threshold that adjusts to signal amplitude changes.
+ * 3. **Temporal Filtering**: A 250ms refractory period to prevent double-counting systolic peaks.
+ * 4. **Motion Gating**: Uses IMU-derived 'has_movement_artifact' flags to invalidate
+ *    calculations during periods of high physical activity.
+ *
+ * @param[in] history     The analysis window containing filtered PPG and motion status.
+ * @param[in] window_size Number of samples in the window.
+ *
+ * @return peak_data_t    Struct containing the indices of valid peaks, zero-crossing
+ *                        counts, and invalid data duration for quality scoring.
+ */
 static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uint16_t window_size)
 {
     enum SignalState signal_position;
@@ -237,6 +285,20 @@ static peak_data_t peak_detector_with_motion_detection(raw_data_t history[], uin
     return window_data;
 }
 
+/**
+ * @brief Calculates the total duration of motion-corrupted data in a window.
+ *
+ * This function performs a temporal audit of the window by identifying contiguous
+ * blocks of data marked with movement artifacts. It calculates the time delta
+ * using hardware timestamps rather than just counting samples, ensuring accuracy
+ * even if the sampling interval ($5ms$) had minor jitter.
+ *
+ * @param[in] history     The analysis window containing timestamps and artifact flags.
+ * @param[in] window_size The number of samples to iterate through.
+ *
+ * @return int64_t        The total time in microseconds (us) where the signal
+ *                        was considered invalid for heart rate or GSR analysis.
+ */
 static int64_t sum_invalid_data_us(raw_data_t history[], uint16_t window_size)
 {
     int64_t total_invalid_us = 0;
@@ -303,6 +365,21 @@ static void calculate_heart_rate(heart_beat_stats_t *hb_data, peak_data_t *s_dat
     }
 }
 
+/**
+ * @brief Calculates the average Heart Rate (BPM) adjusted for motion artifacts.
+ *
+ * This function determines the Heart Rate by measuring the time elapsed between
+ * the first and last valid detected peaks in the window. Crucially, it subtracts
+ * periods identified as containing movement artifacts to provide a "Clean BPM"
+ * estimate.
+ *
+ * @param[out] hb_data  Pointer to stats struct where the resulting avg_hr is stored.
+ * @param[in]  s_data   Pointer to peak data containing peak indices and invalid duration.
+ * @param[in]  history  The raw data buffer used to retrieve precise hardware timestamps.
+ *
+ * @note Requires at least 10 peaks to provide a stable estimate. If the valid
+ *       duration is zero or negative due to excessive noise, HR is set to 0.0f.
+ */
 static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t history[],
                                                  uint16_t window_size)
 {
@@ -331,8 +408,23 @@ static heart_beat_stats_t calculate_rr_intervals(peak_data_t *data, raw_data_t h
     return pulse_data;
 }
 
+/**
+ * @brief Calculates the Root Mean Square of Successive Differences (RMSSD).
+ *
+ * RMSSD is the primary time-domain metric used to estimate Heart Rate Variability (HRV).
+ * This function iterates through a sequence of Inter-Beat Intervals (RR-intervals),
+ * calculates the difference between consecutive beats, and filters out physiological
+ * outliers (e.g., ectopic beats or remaining motion artifacts) using a magnitude threshold.
+ *
+ * @param[in,out] data Pointer to heart_beat_stats_t containing the RR-interval array.
+ *                     Updates the 'rmssd' and 'num_of_diffs' fields.
+ *
+ * @note Formula: sqrt( (1 / N-1) * sum( (RR_i+1 - RR_i)^2 ) )
+ *       Requires at least 2 intervals to perform a comparison.
+ */
 static void calculate_rmssd(heart_beat_stats_t *data)
 {
+    // Data Sufficiency Guard
     if (data->num_of_intervals < 2) {
         data->rmssd = 0.0f;
         data->num_of_diffs = 0;
@@ -342,12 +434,22 @@ static void calculate_rmssd(heart_beat_stats_t *data)
     double sum_squared_diffs = 0.0;
     uint16_t valid_diff_count = 0;
 
-    // Use the actual count of valid intervals identified earlier
+    /**
+     * Successive Difference Calculation
+     * We iterate through the RR intervals and calculate the square of
+     * the difference between interval 'i' and 'i+1'.
+     */
     for (int i = 0; i < (data->num_of_intervals - 1); i++) {
         float current_rr = data->rr_intervals[i];
         float next_rr = data->rr_intervals[i + 1];
 
         float diff = next_rr - current_rr;
+
+        /**
+         * Physiological Outlier Filtering
+         * 'MAX_DIFF_MS_HEARTBEATS' prevents a single misdetected peak (due to motion)
+         * from exponentially skewing the RMSSD value.
+         */
         if (fabsf(diff) < MAX_DIFF_MS_HEARTBEATS) {
             sum_squared_diffs += (double)(diff * diff);
 
@@ -357,6 +459,9 @@ static void calculate_rmssd(heart_beat_stats_t *data)
 
     data->num_of_diffs = valid_diff_count;
 
+    /**
+     * Final RMSSD Derivation
+     */
     if (valid_diff_count > 0) {
         // The core RMSSD formula: sqrt( mean( differences^2 ) )
         double mean_square = sum_squared_diffs / (double)valid_diff_count;

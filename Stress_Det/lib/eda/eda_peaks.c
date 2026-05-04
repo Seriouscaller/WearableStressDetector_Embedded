@@ -33,7 +33,19 @@ static float sc_rr = 0.0f;
 static int window_samples = 0;
 static int window_size = 0;
 
-// Init
+/**
+ * @brief  Initializes the EDA peak detection and feature extraction variables.
+ *
+ * Sets up the timing constraints for peak detection, including the refractory
+ * period (to prevent double-counting a single physiological response) and
+ * windowing for power calculations. It resets the SCR (Skin Conductance Response)
+ * counters and the history buffers used for slope detection.
+ *
+ * @param[in] sampling_rate The frequency at which the GSR sensor is polled (Hz).
+ *
+ * @note The constants 'REFRACTORY_SEC' and 'WINDOW_SEC' must be defined in your
+ *       headers to set the biological and statistical timing limits.
+ */
 void eda_peaks_init(float sampling_rate)
 {
     fs = sampling_rate;
@@ -55,7 +67,22 @@ void eda_peaks_init(float sampling_rate)
     prev_prev = 0.0f;
 }
 
-// Process one sample
+/**
+ * @brief  Analyzes the phasic EDA signal to detect peaks and calculate metrics.
+ *
+ * This function performs three main tasks:
+ * 1. **Peak Detection**: Uses a 4-point sliding window to find local maxima where
+ *    the signal slope changes from rising to falling.
+ * 2. **Refractory Logic**: Implements a lockout period after a peak is detected
+ *    to align with biological sweat gland recovery times.
+ * 3. **Feature Integration**: Calculates the average phasic power and the peak
+ *    frequency (Response Rate) over a fixed time window.
+ *
+ * @param[in] phasic The current filtered and tonic-removed phasic sample.
+ *
+ * @note Metrics are printed to the console in a CSV-ready format for easy
+ *       telemetry visualization.
+ */
 void eda_peaks_process(float phasic)
 {
     // shift buffer
@@ -118,18 +145,53 @@ void eda_peaks_process(float phasic)
     }
 }
 
-// SC_RR (peaks per second) same feature as SOM model uses for classification
+/**
+ * @brief  Retrieves the current Skin Conductance Response Rate (SC-RR).
+ *
+ * This metric is calculated in 'eda_peaks_process' as the number of peaks
+ * detected divided by the window duration. It provides a measure of
+ * sympathetic nervous system activity frequency.
+ *
+ * @return float The response rate (peaks per unit of time).
+ *
+ * @note This value is updated only at the end of each sliding window
+ *       (e.g., every 30 or 60 seconds).
+ */
 float eda_get_scr_rate(void)
 {
     return sc_rr;
 }
 
+/**
+ * @brief  Retrieves the total count of detected Skin Conductance Responses (SCR).
+ *
+ * Returns the current tally of peaks identified by the 'eda_peaks_process'
+ * algorithm. This count is reset every time the 'window_samples' reaches
+ * 'window_size', allowing for periodic density analysis of stress responses.
+ *
+ * @return int The number of valid Phasic peaks detected in the current window.
+ *
+ * @note In biofeedback applications, a high SCR count over a 60-second
+ *       window typically correlates with high cognitive load or emotional stress.
+ */
 int eda_get_scr_count(void)
 {
     return scr_count;
 }
 
-// SC_PH (phasically filtered power) same feature as SOM model uses for classification
+/**
+ * @brief  Retrieves the Phasic Power (SC-Ph) of the EDA signal.
+ *
+ * Returns the mean squared value of the phasic component calculated in
+ * 'eda_peaks_process'. This metric captures the overall intensity of
+ * physiological arousal, accounting for both the frequency and the
+ * amplitude of sweat gland activity.
+ *
+ * @return float The average phasic power (scaled units).
+ *
+ * @note This is a windowed metric. It remains constant throughout a
+ *       window and only updates once the 'window_samples' threshold is met.
+ */
 float eda_get_sc_ph(void)
 {
     return sc_ph;

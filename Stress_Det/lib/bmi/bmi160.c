@@ -31,8 +31,22 @@ static const char *TAG = "BMI160";
 
 #define BMI_160_ACC_GYR_DATASIZE_B 12
 
-// Adds device to i2c.
-// Configures device.
+/**
+ * @brief Initializes the BMI160 IMU sensor on the I2C bus.
+ *
+ * This function adds the BMI160 to the existing I2C master bus, verifies the
+ * Chip ID to ensure hardware presence, and performs a soft reset. It then
+ * configures both the Accelerometer and Gyroscope to 'Normal Mode' with
+ * a 100Hz sampling rate.
+ *
+ * @param[in]  bus_handle  The handle of the initialized I2C master bus.
+ * @param[out] dev_handle  Pointer to the device handle to be created for this sensor.
+ *
+ * @return
+ *      - ESP_OK: Sensor initialized and configured successfully.
+ *      - ESP_FAIL: Incorrect Chip ID or communication failure.
+ *      - ESP_ERR_*: Internal I2C driver errors.
+ */
 esp_err_t bmi160_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t *dev_handle)
 {
 
@@ -90,8 +104,23 @@ esp_err_t bmi160_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     return ESP_OK;
 }
 
-// Reads 12B total of IMU data from sensor. Converts from little-endian
-// to big endian for correct data representation.
+/**
+ * @brief  Reads raw accelerometer and gyroscope data from the BMI160.
+ *
+ * Executes a burst read of 12 bytes starting from the first gyroscope data register.
+ * The BMI160 stores data in little-endian format; this function reconstructs
+ * the 16-bit signed integers for each axis.
+ *
+ * @param[in]  dev_handle I2C device handle for the BMI160.
+ * @param[out] data       Pointer to a 'bmi_data_t' struct where results will be stored.
+ *
+ * @return
+ *      - ESP_OK: Data successfully read and parsed.
+ *      - ESP_FAIL / ESP_ERR_*: Communication failure on the I2C bus.
+ *
+ * @note Burst reads are preferred over individual register reads to ensure
+ *       temporal consistency across all 6 axes.
+ */
 esp_err_t bmi160_read(i2c_master_dev_handle_t dev_handle, bmi_data_t *data)
 {
     uint8_t reg = BMI160_REG_DATA;

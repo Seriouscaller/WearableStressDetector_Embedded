@@ -15,7 +15,21 @@ static const char *TAG = "TMP117";
 #define TMP117_REG_CONFIG 0x01
 #define TMP117_RESOLUTION 0.0078125f
 
-// Adds sensor to i2c
+/**
+ * @brief  Registers the TMP117 high-precision temperature sensor to the I2C bus.
+ *
+ * Uses the ESP-IDF v5.x i2c_master driver to allocate a device handle. The TMP117
+ * provides 16-bit resolution (0.0078°C per LSB) and is used here to monitor
+ * skin temperature as a secondary stress indicator.
+ *
+ * @param[in]  bus_handle  Handle to the initialized I2C master bus.
+ * @param[out] tmp_handle  Pointer to the handle that will represent this device.
+ *
+ * @return
+ *      - ESP_OK: Device added successfully.
+ *      - ESP_ERR_NO_MEM: Out of memory while adding device.
+ *      - ESP_ERR_INVALID_ARG: Invalid bus handle or configuration.
+ */
 esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t *tmp_handle)
 {
 
@@ -36,8 +50,20 @@ esp_err_t tmp117_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_
     return ret;
 }
 
-// Reads 2 Bytes from sensor. Converts from Little-end to Big-end for
-// correct data repr.
+/**
+ * @brief Reads the ambient/skin temperature from the TMP117.
+ *
+ * Performs a 16-bit register read and converts the 2's complement raw value
+ * into degrees Celsius. The TMP117 uses a resolution of 0.0078125°C per LSB.
+ *
+ * @param[in]  tmp_handle  The I2C device handle for the TMP117.
+ * @param[out] temperature Pointer to a float where the Celsius value will be stored.
+ *
+ * @return
+ *      - ESP_OK: Temperature read and converted successfully.
+ *      - ESP_ERR_TIMEOUT: I2C bus was busy or sensor did not respond.
+ *      - Other ESP_ERR codes from the i2c_master_transmit_receive call.
+ */
 esp_err_t tmp117_read_temp(i2c_master_dev_handle_t tmp_handle, float *temperature)
 {
     uint8_t reg_addr = TMP117_REG_TEMP_RESULT;

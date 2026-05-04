@@ -22,10 +22,27 @@ extern const struct ble_gatt_svc_def gatt_svcs[];
 
 static void ble_app_advertise(void);
 
-// Callback when phone requests the characteristic value
+/**
+ * @brief  Callback function for BLE Read operations on sensor data characteristics.
+ *
+ * This function serves as the interface for manual data retrieval. When a BLE central
+ * reads one of the sensor characteristics (A-I), this function retrieves the
+ * corresponding data segment from the global bulk storage. It uses a mutex to ensure
+ * data integrity, preventing the BLE stack from reading a buffer while it is being
+ * updated by the sensor sampling tasks.
+ *
+ * @param[in] conn_h Connection handle.
+ * @param[in] attr_h Attribute handle of the characteristic being read.
+ * @param[in] ctxt   Pointer to the GATT access context (where data is appended).
+ * @param[in] arg    User-defined argument (unused).
+ *
+ * @return
+ *      - 0: Success.
+ *      - BLE_ATT_ERR_UNLIKELY: Failed to acquire mutex or internal error.
+ */
 int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    // If the PC manually asks for data, give it the latest split part
+
     if (xSemaphoreTake(ble_payload_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (attr_h == ble_val_handles.ble_sensor_chr_a_val_handle) {
             os_mbuf_append(ctxt->om, &ble_payloads_bulk[0], sizeof(ble_payload_bulk_t));
@@ -55,7 +72,24 @@ int sensor_read_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-// Callback when phone requests the name of characteristics
+/**
+ * @brief  Callback for accessing BLE GATT Characteristic Descriptors.
+ *
+ * This is a generic callback used to provide metadata for various characteristics.
+ * When a descriptor is defined in the GATT server (e.g., a User Description),
+ * the static string passed via the 'arg' parameter in the service definition
+ * is appended to the mbuf for transmission to the central device.
+ *
+ * @param[in] conn_h Connection handle identifying the active BLE link.
+ * @param[in] attr_h Attribute handle of the descriptor being accessed.
+ * @param[in] ctxt   Pointer to the GATT access context containing the mbuf chain.
+ * @param[in] arg    Pointer to the null-terminated string to be sent (passed
+ *                   from the service definition).
+ *
+ * @return
+ *      - 0: Success (data successfully appended to mbuf).
+ *      - BLE_ATT_ERR_UNLIKELY: Failure, typically if 'arg' is NULL.
+ */
 int gatt_svr_dsc_access(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     if (arg != NULL) {
@@ -64,11 +98,23 @@ int gatt_svr_dsc_access(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-// GAP Event Handler (nimBLE)
-// Handles connection-events of the BLE. Restarts advertising if
-// a connected device disconnects. Can also negotiate a new
-// Maximum Transmission Unit (MTU) if more space is needed
-// for the BLE packet.
+/**
+ * @brief  Callback for BLE Generic Access Profile (GAP) events.
+ *
+ * This function handles the lifecycle of a BLE connection. It captures the
+ * connection handle upon a successful link, restarts the advertising process
+ * if the connection is dropped, and monitors MTU negotiations to optimize
+ * throughput for sensor data transfers.
+ *
+ * @param[in] event Pointer to the GAP event structure.
+ * @param[in] arg   User-defined argument (unused).
+ *
+ * @return
+ *      - 0: Success.
+ *      - Non-zero: Error code (refer to NimBLE return codes).
+ *
+ * @note Re-advertising on disconnect is essential for headless wearable operation.
+ */
 static int ble_gap_event(struct ble_gap_event *event, void *arg)
 {
     switch (event->type) {
@@ -88,15 +134,32 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     return 0;
 }
 
-// Starts the BLE advertisement of device. Connectable, discoverable.
-// Device shows as "XIAO_S3" in mobile nRF-application
+/**
+ * @brief  Configures and starts the BLE advertising process.
+ *
+ * Sets up the advertising payload, including the device name ("XIAO_S3") and
+ * required GAP flags. It then starts advertising in general discoverable and
+ * undirected connectable mode, allowing any central device to initiate a
+ * connection.
+ *
+ * @note The device uses 'BLE_HS_FOREVER', meaning it will broadcast indefinitely
+ *       until a peer connects or the stack is manually stopped.
+ *
+ * @see ble_gap_adv_set_fields
+ * @see ble_gap_adv_start
+ */
 static void ble_app_advertise(void)
 {
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
     memset(&fields, 0, sizeof(fields));
 
-    // Discoverable + Bluetooth Classic not supported
+    /**
+     * @details Set Advertising Flags:
+     * - BLE_HS_ADV_F_DISC_GEN: General Discoverable mode.
+     * - BLE_HS_ADV_F_BREDR_UNSUP: Indicates the device does not support
+     *   Bluetooth Classic (EDR), which is required for LE-only devices.
+     */
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
 
     fields.name = (uint8_t *)"XIAO_S3";
@@ -106,26 +169,57 @@ static void ble_app_advertise(void)
     ble_gap_adv_set_fields(&fields);
     memset(&adv_params, 0, sizeof(adv_params));
 
-    // Undirected connectable. Looking for any device to connect to.
-    // General Discoverable. Keeps sending advertisement packets.
+    /**
+     * @details Connection and Discovery Modes:
+     * - BLE_GAP_CONN_MODE_UND: Undirected connectable mode (any central can connect).
+     * - BLE_GAP_DISC_MODE_GEN: General discovery mode (no timeout on discovery).
+     */
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
     ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
 }
 
-// When the internal BLE layers have synced up. Advertisement starts.
-// Makes sure host and controller are in sync, and ready to handle BLE
-// commands.
+/**
+ * @brief  Callback triggered when the BLE host and controller are synchronized.
+ *
+ * This function is mandatory for NimBLE applications. It ensures that the BLE
+ * stack is fully initialized before any GAP or GATT operations are performed.
+ * Once synced, it automatically determines the best address type to use and
+ * initiates the advertising process.
+ *
+ * @note This is called by the NimBLE host task, not the main application loop.
+ *
+ * @see ble_hs_id_infer_auto
+ * @see ble_app_advertise
+ */
 static void ble_on_sync(void)
 {
-    // No preference between public and random ble address.
+    /**
+     * Determine the address type automatically.
+     * 0: No preference for public address.
+     * &ble_addr_type: Pointer where the determined address type (public or random)
+     * is stored for use in advertising.
+     */
     ble_hs_id_infer_auto(0, &ble_addr_type);
 
     ble_app_advertise();
 }
 
-// FreeRTOS task to let BLE run as a asynchronous task.
+/**
+ * @brief  FreeRTOS task responsible for running the NimBLE stack.
+ *
+ * This task calls 'nimble_port_run()', which is a blocking function that
+ * executes the NimBLE host stack event loop. It handles all background
+ * processing for GAP, GATT, and L2CAP. If the loop ever returns (e.g., during
+ * a stack shutdown), it performs the necessary de-initialization to free
+ * FreeRTOS resources.
+ *
+ * @param[in] param Pointer to task parameters (typically NULL).
+ *
+ * @note This task should be pinned to a core (usually Core 0) if the other
+ *       core is heavily utilized by high-frequency sensor sampling.
+ */
 static void ble_host_task(void *param)
 {
     // Blocking task to keep BLE running
@@ -134,8 +228,23 @@ static void ble_host_task(void *param)
     nimble_port_freertos_deinit();
 }
 
-// Collects ble related functions that is needed for startup of BLE
-// communications.
+/**
+ * @brief  Initializes the BLE stack, GATT server, and starts the host task.
+ *
+ * This function follows the standard startup sequence for a NimBLE server:
+ * 1. Prepares NVS flash (required for BLE security/stack state).
+ * 2. Initializes the NimBLE port and core services (GAP/GATT).
+ * 3. Calculates and allocates memory for the GATT service table.
+ * 4. Sets the synchronization callback to trigger advertising.
+ * 5. Spawns the blocking BLE host task on Core 0.
+ *
+ * @note This should be called once during the system power-up sequence,
+ *       typically after hardware peripherals (ADC/SPI/I2C) are ready.
+ *
+ * @see nvs_flash_init
+ * @see nimble_port_init
+ * @see ble_on_sync
+ */
 void init_ble_server(void)
 {
     // Non-volatile storage setup

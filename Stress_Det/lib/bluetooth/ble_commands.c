@@ -24,7 +24,23 @@ extern volatile bool is_sampling_active;
 extern volatile uint8_t current_experiment_phase;
 extern SemaphoreHandle_t experiment_phase_mutex;
 
-// Callback when device receives command over ble
+/**
+ * @brief  Callback function for BLE Write operations on the control characteristic.
+ *
+ * This function parses incoming commands from a BLE central device. It supports
+ * single-byte commands and two-byte command+payload packets. Based on the opcode,
+ * it toggles sensor sampling, manages flash memory, or reboots the MCU.
+ *
+ * @param[in] conn_h Connection handle identifying the active BLE link.
+ * @param[in] attr_h Attribute handle of the characteristic being written to.
+ * @param[in] ctxt   Pointer to the GATT access context, containing the received data (om).
+ * @param[in] arg    User-defined argument (unused in this implementation).
+ *
+ * @return
+ *      - 0: Success.
+ *      - BLE_ATT_ERR_UNLIKELY: Incorrect operation or characteristic handle.
+ *      - BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN: Data packet length does not match expected size.
+ */
 int control_write_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     // Was a write operation received?
@@ -100,6 +116,23 @@ int control_write_cb(uint16_t conn_h, uint16_t attr_h, struct ble_gatt_access_ct
     return 0;
 }
 
+/**
+ * @brief  Updates the global experiment phase ID using thread-safe locking.
+ *
+ * This function validates the incoming BLE payload length and attempts to
+ * acquire the experiment phase mutex. If successful, it updates the global
+ * 'current_experiment_phase' variable, which is used by data logging tasks
+ * to timestamp sensor readings with the correct experimental context.
+ *
+ * @param[in] len   Length of the received BLE packet.
+ * @param[in] phase The new experiment phase ID (e.g., 0 for Idle, 1 for Baseline).
+ *
+ * @note If the mutex cannot be acquired within 10ms, the update is aborted
+ *       to prevent blocking the BLE callback, and a warning is logged.
+ *
+ * @see experiment_phase_mutex
+ * @see current_experiment_phase
+ */
 static void handle_experiment_phase_cmd(uint8_t len, uint8_t phase)
 {
     if (len < SIZE_PACKET_WITH_PAYLOAD) {

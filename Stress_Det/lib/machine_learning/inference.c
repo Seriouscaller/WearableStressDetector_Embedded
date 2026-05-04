@@ -16,6 +16,21 @@ static void normalize(float *input, float *scaled_output);
 int classify_stress(som_input_t *features);
 static uint16_t get_winning_neuron(float *scaled_input);
 
+/**
+ * @brief  Classifies the user's stress state using a Self-Organizing Map.
+ *
+ * Takes synchronized features from both the PPG and GSR processing chains.
+ * The algorithm normalizes the features to a common scale and calculates the
+ * Euclidean distance to all neurons in the SOM to find the winner (BMU).
+ *
+ * @param[in] features Pointer to a struct containing HR, HRV_RMSSD, SC_PH, and SC_RR.
+ *
+ * @return
+ *      - 0: REST (Low arousal, high HRV)
+ *      - 1: NEUTRAL (Baseline state)
+ *      - 2: STRESS (High arousal, low HRV, high GSR activity)
+ *      - -1: Error (Missing data or indexing fault)
+ */
 int classify_stress(som_input_t *features)
 {
 
@@ -63,17 +78,46 @@ int classify_stress(som_input_t *features)
     return (int)som_clusters[bmu_index];
 }
 
-/*
-*@brief Normalization using Min -
-    Max Scaler *Maps input features to a[0, 1] range based on training data bounds.*/
+/**
+ * @brief  Normalizes input features to a [0, 1] range for SOM inference.
+ *
+ * This is a standard Min-Max scaler implementation. It ensures that features
+ * with different units (BPM for Heart Rate, µS for GSR) exert equal influence
+ * on the Euclidean distance calculation during the BMU search.
+ *
+ * @param[in]  input         Raw feature vector [HR, HRV, SC_PH, SC_RR].
+ * @param[out] scaled_output Normalized vector where each element is [0.0, 1.0].
+ *
+ * @note The 'scaler_min' and 'scaler_range' (max - min) arrays must be
+ *       identical to those used during the offline training phase in
+ *       order to maintain classification accuracy.
+ */
 static void normalize(float *input, float *scaled_output)
 {
     for (int i = 0; i < SOM_INPUT_LEN; i++) {
-        // formula: (x - min) / (max - min)
+        /**
+         * Min-Max Formula: x_scaled = (x - x_min) / (x_max - x_min)
+         * We use 'scaler_range' as the denominator to save a subtraction
+         * operation during each iteration.
+         */
         scaled_output[i] = (input[i] - scaler_min[i]) / scaler_range[i];
     }
 }
 
+/**
+ * @brief  Finds the Best Matching Unit (BMU) in the Self-Organizing Map.
+ *
+ * Compares the 4-dimensional normalized input vector against the weights
+ * of every neuron in the SOM. It uses the squared Euclidean distance
+ * metric to determine similarity.
+ *
+ * @param[in] scaled_input  Normalized feature vector [HR, HRV, SC_PH, SC_RR].
+ *
+ * @return uint16_t The index of the winning neuron (0 to SOM_NEURONS - 1).
+ *
+ * @note This function avoids the 'sqrtf' call for performance, as
+ *       if (a^2 < b^2), then (a < b) for all positive distances.
+ */
 static uint16_t get_winning_neuron(float *scaled_input)
 {
     uint16_t best_neuron = 0;

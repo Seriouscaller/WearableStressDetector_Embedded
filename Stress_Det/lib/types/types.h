@@ -1,3 +1,11 @@
+/**
+ * @file types.h
+ * @brief Data structure definitions for the XIAO ESP32-S3 Wearable Stress Monitor.
+ *
+ * Contains structures for sensor data, BLE payloads, SOM features,
+ * and device configuration. Optimized for PSRAM storage and NimBLE transmission.
+ */
+
 #pragma once
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
@@ -9,75 +17,108 @@
 #define BLE_NUM_OF_SAMPLES_PER_PAYLOAD 24
 #define BLE_NUM_OF_BULK_PAYLOADS 8
 
+/**
+ * @brief Raw IMU data from BMI260.
+ */
 typedef struct {
-    int16_t acc_x; // 2B
-    int16_t acc_y; // 2B
-    int16_t acc_z; // 2B
-    int16_t gyr_x; // 2B
-    int16_t gyr_y; // 2B
-    int16_t gyr_z; // 2B
-} bmi_data_t;      // Tot: 12B
+    int16_t acc_x; /**< Accelerometer X-axis raw value */
+    int16_t acc_y; /**< Accelerometer Y-axis raw value */
+    int16_t acc_z; /**< Accelerometer Z-axis raw value */
+    int16_t gyr_x; /**< Gyroscope X-axis raw value */
+    int16_t gyr_y; /**< Gyroscope Y-axis raw value */
+    int16_t gyr_z; /**< Gyroscope Z-axis raw value */
+} bmi_data_t;      /* Total: 12 Bytes */
 
+/**
+ * @brief Minimal sample structure for bulk logging/BLE streaming.
+ */
 typedef struct __attribute__((packed)) {
-    int64_t time_stamp; // 8B
-    uint32_t ppg_raw;   // 4B
-    float ppg_filtered; // 4B
-    uint16_t gsr;       // 2B
-} raw_log_data_t;       // Tot: 16B
+    int64_t time_stamp; /**< Microseconds since boot (esp_timer_get_time) */
+    uint32_t ppg_raw;   /**< Raw ADC/FIFO value from MAX30101 (Green LED) */
+    float ppg_filtered; /**< Biquad/EMA filtered PPG signal */
+    uint16_t gsr;       /**< Raw 12-bit ADC value from CJMCU 6701 SPI */
+} raw_log_data_t;       /* Total: 18 Bytes (Updated from 16B due to int64 alignment) */
 
+/**
+ * @brief Internal high-resolution data point for real-time processing.
+ */
 typedef struct __attribute__((packed)) {
-    int64_t time_stamp; // 8B
-    uint32_t ppg_raw;   // 4B
-    float ppg_filtered; // 4B
-    uint16_t gsr;       // 2B
-    float gsr_scaled;
-    float gsr_clean;
-    bmi_data_t bmi_data;
-    bool has_movement_artifact;
+    int64_t time_stamp;         /**< esp_timer timestamp */
+    uint32_t ppg_raw;           /**< Raw PPG sensor data */
+    float ppg_filtered;         /**< Processed PPG AC component */
+    uint16_t gsr;               /**< Raw GSR ADC value */
+    float gsr_scaled;           /**< GSR converted to Voltage/Resistance */
+    float gsr_clean;            /**< GSR Phasic/Filtered component */
+    bmi_data_t bmi_data;        /**< Synchronized IMU snapshot */
+    bool has_movement_artifact; /**< Flag set by detect_motion logic */
 } raw_data_t;
 
+/**
+ * @brief Input vector for the Self-Organizing Map (SOM).
+ */
 typedef struct __attribute__((packed)) {
-    float hr;        // 4B
-    float hrv_rmssd; // 4B
-    float sc_ph;     // 4B
-    float sc_rr;     // 4B
-} som_input_t;       // Tot: 16B
+    float hr;        /**< Heart Rate in BPM */
+    float hrv_rmssd; /**< Root Mean Square of Successive Differences */
+    float sc_ph;     /**< Skin Conductance Phasic component (peaks) */
+    float sc_rr;     /**< Skin Conductance Response Rate */
+} som_input_t;       /* Total: 16 Bytes */
 
+/**
+ * @brief Structure for Transfer Learning snapshots saved to SPIFFS.
+ */
 typedef struct __attribute__((packed)) {
-    som_input_t features;        // 20B
-    uint8_t experiment_phase;    // 1B
-    uint8_t padding[3];          // 3B (Padding for CPU)
-} som_input_transfer_learning_t; // Tot: 24B
+    som_input_t features;        /**< 16B feature vector */
+    uint8_t experiment_phase;    /**< Phase ID for supervised labeling */
+    uint8_t padding[3];          /**< Alignment padding for 32-bit CPU access */
+} som_input_transfer_learning_t; /* Total: 20 Bytes */
 
+/**
+ * @brief Full 1-second data bundle intended for PSRAM storage.
+ */
 typedef struct __attribute__((packed)) {
-    uint32_t timestamp;              // 4B
-    raw_log_data_t raw_samples[200]; // 2800B
-    som_input_t features;            // 24B
-    uint8_t stress_class;            // 1B
-    uint16_t num_of_classifications; // 2B
-    uint8_t experiment_phase;        // 1B
-} complete_log_t;                    // Tot: 2830B
+    uint32_t timestamp;              /**< Start of window timestamp */
+    raw_log_data_t raw_samples[200]; /**< 1 second of 200Hz raw data */
+    som_input_t features;            /**< Extracted features for this second */
+    uint8_t stress_class;            /**< Result: 0=Neutral, 1=Stress, 2=Rest */
+    uint16_t num_of_classifications; /**< Running session counter */
+    uint8_t experiment_phase;        /**< Current experimental context */
+} complete_log_t;
 
+/**
+ * @brief Payload for NimBLE bulk data characteristics (A-H).
+ */
 typedef struct __attribute__((packed)) {
-    uint32_t timestamp;                                         // 4 Bytes
-    raw_log_data_t raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD]; // First 30 samples (30 * 14B = 420 Bytes)
+    uint32_t timestamp;                                         /**< Sync timestamp */
+    raw_log_data_t raw_samples[BLE_NUM_OF_SAMPLES_PER_PAYLOAD]; /**< Fragmented raw samples */
 } ble_payload_bulk_t;                                           // Total: 424B
 
+/**
+ * @brief Payload for NimBLE summary characteristic (I).
+ */
 typedef struct __attribute__((packed)) {
-    uint32_t timestamp;              // 4 Bytes
-    raw_log_data_t raw_samples[8];   // Last 8 samples
-    float hr, rmssd, sc_ph, sc_rr;   // 4 * 4 = 16 Bytes
-    uint8_t stress_class;            // (1 byte)
-    uint16_t num_of_classifications; // 2B
-    uint8_t experiment_phase;        // (1 byte)
-} ble_payload_final_t;               // Total: 450 bytes
+    uint32_t timestamp;              /**< Sync timestamp */
+    raw_log_data_t raw_samples[8];   /**< Remaining samples to complete the second */
+    float hr;                        /**< Heart Rate feature */
+    float rmssd;                     /**< HRV feature */
+    float sc_ph;                     /**< GSR Phasic feature */
+    float sc_rr;                     /**< GSR Response Rate feature */
+    uint8_t stress_class;            /**< Final ML classification result */
+    uint16_t num_of_classifications; /**< Cumulative classification count */
+    uint8_t experiment_phase;        /**< Active experiment phase */
+} ble_payload_final_t;
 
+/**
+ * @brief Peripheral handles for I2C and SPI communication.
+ */
 typedef struct {
-    i2c_master_dev_handle_t *max_handle;
-    i2c_master_dev_handle_t *bmi_handle;
-    spi_device_handle_t *gsr_handle;
+    i2c_master_dev_handle_t *max_handle; /**< MAX30101 I2C device handle */
+    i2c_master_dev_handle_t *bmi_handle; /**< BMI260 I2C device handle */
+    spi_device_handle_t *gsr_handle;     /**< CJMCU 6701 SPI device handle */
 } sensor_handles_t;
 
+/**
+ * @brief NimBLE Value Handles for GATT characteristics.
+ */
 typedef struct {
     uint16_t ble_sensor_chr_a_val_handle;
     uint16_t ble_sensor_chr_b_val_handle;
@@ -87,18 +128,21 @@ typedef struct {
     uint16_t ble_sensor_chr_f_val_handle;
     uint16_t ble_sensor_chr_g_val_handle;
     uint16_t ble_sensor_chr_h_val_handle;
-    uint16_t ble_sensor_chr_i_val_handle;
-    uint16_t ble_command_chr_val_handle;
+    uint16_t ble_sensor_chr_i_val_handle; /**< Final summary characteristic handle */
+    uint16_t ble_command_chr_val_handle;  /**< Command/Input characteristic handle */
 } ble_sensor_handles_t;
 
+/**
+ * @brief Global flags for runtime device configuration and debugging.
+ */
 typedef struct {
-    bool show_telemetry;
-    bool show_logged_values;
-    bool show_battery_log;
-    bool show_gsr_debugging;
-    bool show_spiff_status;
-    bool enable_imu;
-    bool enable_ppg;
-    bool enable_gsr;
-    bool enable_temp;
+    bool show_telemetry;     /**< Print raw data to serial for Teleplot */
+    bool show_logged_values; /**< Verbose logging of processed features */
+    bool show_battery_log;   /**< Print battery voltage/percentage status */
+    bool show_gsr_debugging; /**< Print GSR specific ADC/Filtering data */
+    bool show_spiff_status;  /**< Print flash storage usage on each save */
+    bool enable_imu;         /**< Power on BMI260 */
+    bool enable_ppg;         /**< Power on MAX30101 */
+    bool enable_gsr;         /**< Power on CJMCU 6701 */
+    bool enable_temp;        /**< Power on TMP117 */
 } device_control_t;

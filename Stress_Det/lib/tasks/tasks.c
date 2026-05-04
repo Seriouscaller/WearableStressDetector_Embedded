@@ -62,6 +62,19 @@ extern float battery_percentage;
 extern float temperature;
 extern uint16_t num_of_classifications;
 
+/**
+ * @brief  High-priority task for synchronized multi-sensor sampling.
+ *
+ * This task runs at a fixed frequency (typically 200Hz) and performs:
+ * 1. **Data Acquisition**: Reads the MAX30101 (PPG), CJMCU 6701 (GSR), and BMI260 (IMU).
+ * 2. **Motion Guarding**: Implements a 'cooldown' period where data is marked invalid
+ *    immediately following detected movement to prevent filter ringing/false peaks.
+ * 3. **Signal Pre-processing**: Applies Biquad filtering to PPG and scaling to GSR.
+ * 4. **Batching**: Bundles samples into 1-second chunks (200 samples) before pushing
+ *    to the PSRAM Ringbuffer to minimize context-switching overhead.
+ *
+ * @param[in] pvParameters Pointer to sensor_handles_t containing peripheral handles.
+ */
 void sensor_sampling_task(void *pvParameters)
 {
     sensor_handles_t *sensors = (sensor_handles_t *)pvParameters;
@@ -135,10 +148,21 @@ void sensor_sampling_task(void *pvParameters)
     }
 }
 
-// Extracts 30 seconds of raw_data_t from ringbuffer. Copies data to static array (history).
-// Runs feature extraction to get features for ML model. ML model runs prediction
-// on these features. Rawdata + features + ML result are added to complete_log_t.
-// The complete_log_t is added to data_log_queue for BLE transmission.
+/**
+ * @brief  Consumer task for feature extraction and stress classification.
+ *
+ * This task manages a sliding temporal window of physiological data. It:
+ * 1. **Data Management**: Maintains a 'history' buffer in PSRAM, shifting out the
+ *    oldest 1-second block to make room for new samples from the Ringbuffer.
+ * 2. **Feature Extraction**: Periodically calculates HR, HRV, and GSR features
+ *    based on the FEATURE_EXTRATION_INTERVAL.
+ * 3. **Machine Learning**: Runs the SOM-based 'classify_stress' algorithm to
+ *    determine the user's mental state (Neutral, Stress, or Rest).
+ * 4. **Telemetry & Logging**: Aggregates raw data, features, and ML results into
+ *    a 'complete_log_t' and queues it for NVS storage or BLE transmission.
+ *
+ * @param[in] pvParameters Unused task parameters.
+ */
 void feature_extraction_task(void *pvParameters)
 {
     raw_data_t *history = (raw_data_t *)heap_caps_malloc(WINDOW_SIZE * sizeof(raw_data_t), MALLOC_CAP_SPIRAM);
@@ -207,6 +231,17 @@ void feature_extraction_task(void *pvParameters)
     }
 }
 
+/**
+ * @brief Final processing stage for logged data, BLE transmission, and persistence.
+ *
+ * This task consumes 'complete_log_t' objects from the data_log_queue. For each log, it:
+ * 1. **Telemtry**: Optionally prints human-readable sensor stats to the serial console.
+ * 2. **BLE Dispatch**: Fragments and prepares data for NimBLE characteristics using a mutex.
+ * 3. **Persistence**: Buffers and saves data for transfer learning via SPIFFS.
+ * 4. **Memory Management**: Frees the PSRAM-allocated log pointer to prevent leaks.
+ *
+ * @param[in] pvParameters Unused task parameters.
+ */
 void logging_task(void *pvParameters)
 {
     complete_log_t *received_log;
@@ -240,8 +275,19 @@ void logging_task(void *pvParameters)
     }
 }
 
-// Update BLE message buffer every BLE_NOTIFY_INTERVAL_MS, and notify connected phone.
-// Task responsible for sending data every second over BLE
+/**
+ * @brief  Task responsible for broadcasting sensor data via BLE notifications.
+ *
+ * Periodically transmits batched sensor payloads and final inference results to
+ * the connected BLE client. It uses a series of characteristic handles to
+ * distribute bulk data and high-level features (BPM, RMSSD, Stress Class).
+ *
+ * @param[in] pvParameters Unused task parameters.
+ *
+ * @note Implements a brief 10ms delay between characteristic updates to prevent
+ *       overwhelming the BLE controller's buffer, which is critical for
+ *       maintaining connection stability on the ESP32-S3.
+ */
 void ble_update_task(void *pvParameters)
 {
     uint16_t handles[] = {
@@ -274,6 +320,20 @@ void ble_update_task(void *pvParameters)
     }
 }
 
+/**
+ * @brief  Periodic task for battery voltage monitoring and fuel gauging.
+ *
+ * This task initializes the ADC (Analog-to-Digital Converter) using the
+ * ESP-IDF oneshot unit and applies factory calibration to ensure millivolt
+ * accuracy. It periodically samples the battery rail, calculates the
+ * discharge state, and updates the global battery_percentage.
+ *
+ * @param[in] pvParameters Unused task parameters.
+ *
+ * @note On the XIAO S3, the battery voltage is typically tied to GPIO 1
+ *       through a voltage divider. Accurate readings require the ADC
+ *       calibration handles to account for Vref drift.
+ */
 void battery_task(void *pvParameters)
 {
     adc_oneshot_unit_handle_t adc1_handle = NULL;
@@ -294,6 +354,22 @@ void battery_task(void *pvParameters)
     }
 }
 
+/**
+ * @brief Slices a complete log into fragmented BLE-ready payloads.
+ *
+ * This function performs the "Fragmentation" part of the data pipeline. Since a
+ * full 1-second log exceeds the maximum BLE MTU, it is subdivided into 8 bulk
+ * packets (containing raw waveforms) and one final packet (containing
+ * summary statistics and SOM results).
+ *
+ * All fragments are timestamp-synchronized to allow the client-side app
+ * to reconstruct the continuous signal timeline.
+ *
+ * @param[in] log Pointer to the PSRAM-allocated log structure to be fragmented.
+ *
+ * @note This function must be called while holding 'ble_payload_mutex' to
+ *       ensure thread safety against the NimBLE transmission task.
+ */
 static void fragment_ble_payloads(complete_log_t *log)
 {
     uint32_t sync_time = log->timestamp;
@@ -320,6 +396,22 @@ static void fragment_ble_payloads(complete_log_t *log)
     ble_payload_final.experiment_phase = log->experiment_phase;
 }
 
+/**
+ * @brief  Encapsulates and transmits data via a BLE GATT Notification.
+ *
+ * This function handles the low-level NimBLE buffer allocation and dispatch.
+ * It converts a contiguous memory block into an 'os_mbuf' chain, which is the
+ * internal memory management structure used by the BLE host to handle
+ * asynchronous radio transmissions.
+ *
+ * @param[in] handle The GATT characteristic value handle to notify.
+ * @param[in] data   Pointer to the flat data structure (e.g., ble_payload_bulk_t).
+ * @param[in] len    Length of the data in bytes.
+ *
+ * @note If 'ble_gatts_notify_custom' returns a non-zero value, it typically
+ *       indicates a 'BLE_HS_ENOMEM' error, suggesting the transmit buffers
+ *       are full.
+ */
 static void send_ble_payload(uint16_t handle, void *data, uint16_t len)
 {
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
@@ -331,6 +423,21 @@ static void send_ble_payload(uint16_t handle, void *data, uint16_t len)
     }
 }
 
+/**
+ * @brief  Caches processed feature vectors into the Transfer Learning buffer.
+ *
+ * This function acts as an intermediate staging area. It extracts the computed
+ * features (HR, HRV, GSR Phasic, etc.) and the current experimental phase
+ * from a 'complete_log_t' and stores them in the 'transfer_learning_buffer'.
+ *
+ * @param[in]     log         Pointer to the current processed log entry.
+ * @param[in,out] buff_index  Pointer to the current write index of the
+ *                            transfer_learning_buffer.
+ *
+ * @note This function manages a linear buffer. If the buffer reaches
+ *       STORAGE_BUFFER_SIZE, it resets the index to 0 to prevent memory
+ *       corruption, though this results in the oldest data being overwritten.
+ */
 static void collect_training_data(complete_log_t *log, uint16_t *buff_index)
 {
     transfer_learning_buffer[*buff_index].features = log->features;
@@ -344,6 +451,22 @@ static void collect_training_data(complete_log_t *log, uint16_t *buff_index)
     }
 }
 
+/**
+ * @brief  Commits batched training data from PSRAM to the SPIFFS filesystem.
+ *
+ * When the local cache reaches 'STORAGE_BUFFER_SIZE', this function opens the
+ * persistence file in append-binary ("ab") mode. It flushes the accumulated
+ * 'som_input_transfer_learning_t' structs to flash, ensuring that the user's
+ * physiological baseline data survives a power cycle or battery depletion.
+ *
+ * @param[in,out] buff_index Pointer to the current buffer count. Reset to 0
+ *                            upon a successful write.
+ *
+ * @note This operation is a synchronous blocking write. On the ESP32-S3,
+ *       SPIFFS writes can take several milliseconds; ensure this is called
+ *       from a low-priority task (like logging_task) to avoid jitter in
+ *       sensor sampling.
+ */
 static void store_training_data(uint16_t *buff_index)
 {
     if (*buff_index >= STORAGE_BUFFER_SIZE) {
@@ -363,6 +486,19 @@ static void store_training_data(uint16_t *buff_index)
     }
 }
 
+/**
+ * @brief  Aggregates raw samples, computed features, and ML results into a final log.
+ *
+ * This function assembles a 'complete_log_t' structure by copying raw signal data
+ * from the sampling buffer and attaching the high-level features and stress
+ * classification result. It also synchronizes the current experimental phase
+ * using a mutex to ensure data labeling accuracy for transfer learning.
+ *
+ * @param[out] final_log  Pointer to the log structure in PSRAM to be populated.
+ * @param[in]  new_samples Array of 200 raw data points (1 second of activity).
+ * @param[in]  features    Pointer to the extracted feature vector (HR, RMSSD, GSR metrics).
+ * @param[in]  result      The classification output from the SOM (Neutral, Stress, Rest).
+ */
 static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_samples, som_input_t *features,
                                    uint8_t result)
 {
@@ -385,6 +521,23 @@ static void collect_data_final_log(complete_log_t *final_log, raw_data_t *new_sa
     }
 }
 
+/**
+ * @brief  Analyzes IMU data to detect physical motion artifacts.
+ *
+ * Calculates a combined movement score using both accelerometer and gyroscope
+ * data from the BMI260. It uses vector magnitude to determine if the
+ * current sample is compromised by physical activity.
+ *
+ * @param[in] sample Pointer to the raw BMI260 data struct.
+ *
+ * @return
+ *      - true:  Motion detected (signal likely corrupted).
+ *      - false: Device is stable (signal clean).
+ *
+ * @note The 'movement_intensity' is derived by calculating the deviation
+ *       from 1.0g (static gravity), effectively creating a high-pass filter
+ *       for linear acceleration.
+ */
 static bool detect_motion(bmi_data_t *sample)
 {
     const float GRAVITY_LSB = 2050.0f;
@@ -409,6 +562,21 @@ static bool detect_motion(bmi_data_t *sample)
     }
 }
 
+/**
+ * @brief  Low-priority task for serial telemetry and signal visualization.
+ *
+ * Consumes sampled data from the 'telemetry_queue' and outputs it to the UART
+ * console using a format compatible with Serial Plotters (e.g., Teleplot).
+ * This is used during the research phase to verify:
+ * 1. PPG Filter performance (Raw vs. Filtered).
+ * 2. Motion rejection logic (Movement flag status).
+ * 3. GSR sensor scaling and responsiveness.
+ *
+ * @param[in] pvParameters Unused task parameters.
+ *
+ * @note This task should be disabled in production via 'device_config.show_telemetry'
+ *       to save power and UART bandwidth.
+ */
 void telemetry_task(void *pvParameters)
 {
     raw_data_t sample;
@@ -423,6 +591,17 @@ void telemetry_task(void *pvParameters)
     }
 }
 
+/**
+ * @brief  Periodic task for high-precision skin temperature monitoring.
+ *
+ * Samples the TMP117 sensor via I2C at a 1Hz frequency.
+ *
+ * @param[in] pvParameters Unused task parameters.
+ *
+ * @note The TMP117 is highly sensitive; ensure the sensor has good thermal
+ *       contact with the skin and is thermally isolated from the ESP32-S3
+ *       MCU heat to avoid biased readings.
+ */
 void temperature_task(void *pvParameters)
 {
     while (1) {

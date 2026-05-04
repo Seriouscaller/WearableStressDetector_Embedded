@@ -39,8 +39,19 @@ static const char *TAG = "MAX30101";
 
 #define BOOSTPMP_5V_ENABLE_PIN 2
 
-// Adds sensor to i2c
-// Configure device
+/**
+ * @brief  Initializes the MAX30101 for Green-only PPG heart rate detection.
+ *
+ * Sets up the 5V boost power supply, configures the I2C device on the bus,
+ * and puts the sensor into Multi-LED mode. This specific configuration is
+ * optimized for wrist-based heart rate monitoring by utilizing both green LED
+ * channels to maximize signal penetration.
+ *
+ * @param[in]  bus_handle I2C master bus handle for the XIAO S3.
+ * @param[out] max_handle Pointer to the handle for the MAX30101 device.
+ *
+ * @return esp_err_t ESP_OK on success, or an error code on communication failure.
+ */
 esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t *max_handle)
 {
     gpio_reset_pin(BOOSTPMP_5V_ENABLE_PIN);
@@ -79,34 +90,22 @@ esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handl
     write_reg(*max_handle, MAX30101_REG_MULTI_LED_1, MAX30101_SLOT_1_GREEN);
     write_reg(*max_handle, MAX30101_REG_MULTI_LED_2, MAX30101_SLOT_3_4_DIS);
 
-    // Green LED set to 25.4 mA
-    // [0x00 - 0xFF (51 mA)]
-    // Can use both registers to drive Green Led. Double power.
-    // write_reg(*max_handle, MAX30101_REG_LED3_PA, MAX30101_LED_PA_25_4MA);
+    /**
+     * LED Drive Current & Power Management
+     * Pulse Amplitude 0x7F corresponds to ~25.4 mA.
+     */
     write_reg(*max_handle, MAX30101_REG_LED3_PA, 0x7F);
-    // write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x7F); // Waveform more pointy!
-    // write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x00);
     write_reg(*max_handle, MAX30101_REG_LED4_PA, 0x7F);
 
-    // 1 sample averging
-    // write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, MAX30101_FIFO_AVG_1);
+    // Signal Quality Settings
+    // 2-sample averaging helps mitigate high-frequency I2C bus noise.
     write_reg(*max_handle, MAX30101_REG_FIFO_CONFIG, 0x20);
 
-    // Sampling rate: 200Hz
-    // ADC Resolution: 18-bit
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, MAX30101_SAMPLE_RATE_200_ADC_18B); //
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x0B); // Generates aliasing in the waveform  71k
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x7F); // Nice waveform 8.7k
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x2B); // Generates aliasing in the waveform  38k
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x2F); // Nice waveform 75k BEST SO FAR
-    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x2F); //
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG,
-    // 0x2A); // 200Hz 17-bit Generates aliasing in the waveform 35k
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG,
-    //         0x28); // 200Hz 15-bit Generates aliasing in the waveform 33k
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x7F); // 800Hz 2avg  Nice waveform 35k
-
-    // write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x7C); //Jittery
+    /**
+     * ADC Configuration:
+     * 200 Hz sampling rate at 18-bit resolution (411µs pulse width).
+     */
+    write_reg(*max_handle, MAX30101_REG_SPO2_CFG, 0x2F);
 
     // Enable Multi-LED Mode (0x07)
     // Is needed to enable green LED
@@ -116,23 +115,61 @@ esp_err_t max30101_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handl
     return ret;
 }
 
-// Reads 18-bits of PPG data from sensor. Converts from little-endian
-// to big endian uint32_t for correct data representation.
+/**
+ * @brief  Reads a single PPG sample from the MAX30101 FIFO.
+ *
+ * In Multi-LED mode, the FIFO is organized by the slots defined in the
+ * Multi-LED Control registers. Since only Slot 1 (Green) is active,
+ * a single 3-byte read retrieves the most recent Green LED intensity.
+ *
+ * @param[in]  dev_handle I2C device handle for the MAX30101.
+ * @param[out] ppg_green  Pointer to store the 18-bit filtered PPG value.
+ *
+ * @return
+ *      - ESP_OK: Data read and bit-shifted successfully.
+ *      - ESP_FAIL: I2C communication error.
+ *
+ * @note Masking with 0x3FFFF removes the upper 6 bits of the 24-bit
+ *       read, which are padding/reserved bits in 18-bit ADC mode.
+ */
 esp_err_t max30101_read_fifo(i2c_master_dev_handle_t dev_handle, uint32_t *ppg_green)
 {
     uint8_t buffer[3];
     uint8_t reg = MAX30101_REG_FIFO_DATA;
 
-    // Receives 3 Bytes bits PPG data from sensor. Stored in buffer.
+    /**
+     * i2c_master_transmit_receive:
+     * Sends the FIFO_DATA register address and then clocks out
+     * 3 bytes (24 bits) of data in a single I2C transaction.
+     */
     esp_err_t ret = i2c_master_transmit_receive(dev_handle, &reg, 1, buffer, 3, -1);
 
-    // Shifts bytes into uint32_t format
     if (ret == ESP_OK) {
+        /**
+         * Reconstruct the 24-bit value:
+         * Byte 0: [X][X][B17][B16][B15][B14][B13][B12] (High Byte)
+         * Byte 1: [B11][B10][B09][B08][B07][B06][B05][B04]
+         * Byte 2: [B03][B02][B01][B00][X][X][X][X] (Low Byte)
+         *
+         * The & 0x3FFFF mask extracts the 18 bits of ADC data.
+         */
         *ppg_green = (uint32_t)((buffer[0] << 16) | (buffer[1] << 8) | buffer[2]) & 0x3FFFF;
     }
     return ret;
 }
 
+/**
+ * @brief  Calculates the number of unread samples available in the sensor FIFO.
+ *
+ * The MAX30101 uses a circular buffer. This function reads the Write Pointer
+ * (controlled by the sensor) and the Read Pointer (controlled by the MCU)
+ * to determine the data backlog.
+ *
+ * @param[in]  dev_handle I2C device handle for the MAX30101.
+ * @param[out] count      Number of available samples (0 to 32).
+ *
+ * @return esp_err_t ESP_OK on successful I2C communication.
+ */
 esp_err_t max30101_get_fifo_count(i2c_master_dev_handle_t dev_handle, uint8_t *count)
 {
     uint8_t write_ptr = 0;
