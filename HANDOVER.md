@@ -827,36 +827,6 @@ idf.py flash         # Re-flash firmware
 
 ---
 
-## Handover Checklist
-
-Before passing to next team:
-
-- [ ] All 7 FreeRTOS tasks understood and documented
-- [ ] I2C & SPI bus initialization flow verified
-- [ ] Ring buffer operation and data flow confirmed
-- [ ] Feature extraction pipeline tested end-to-end
-- [ ] BLE payload fragmentation validated
-- [ ] SPIFFS logging tested with >100 samples
-- [ ] SOM classifier outputs verified (all 3 classes)
-- [ ] Debug serial output captured for reference
-- [ ] All GPIO pin assignments documented (see `board_config.c`)
-- [ ] Build system (idf.py or platformio) tested
-- [ ] Flash procedure validated
-- [ ] Companion app BLE protocol documented (separate repo)
-
----
-
-## Next Steps for Continuing Development
-
-1. **Feature Improvement:** Optimize HR/HRV for different fitness levels
-2. **ML Retraining:** Collect labeled dataset, retrain SOM model
-3. **Wireless:** Extend range with external antenna
-4. **Power:** Implement sleep modes for battery life
-5. **Calibration:** Add user-specific baseline calibration routine
-6. **Validation:** Compare with clinical-grade monitors (PPG, EDA)
-
----
-
 ## Contact & Support
 
 For questions on specific modules:
@@ -870,4 +840,3 @@ For questions on specific modules:
 
 **Document Version:** 1.0  
 **Last Updated:** May 4, 2026  
-**Handover Status:** Ready for Team Transition
